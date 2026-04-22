@@ -24,3 +24,11 @@ class AnchorResponse(BaseModel):
     message: str
     token: Optional[str] = None
     risk: Optional[RiskScore] = None
+
+class DeviceVerifyRequest(BaseModel):
+    token: str
+    canvas_hash: str
+    screen_resolution: str
+    timezone: str
+    hardware_concurrency: int
+    language: str
