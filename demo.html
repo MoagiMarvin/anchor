@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anchor Security — Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: 'Segoe UI', sans-serif; 
+      background: #0a0a0f; 
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+    
+    .header {
+      background: #111118;
+      border-bottom: 1px solid #222;
+      padding: 20px 40px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .logo {
+      font-size: 24px;
+      font-weight: 900;
+      color: #00ff88;
+      letter-spacing: 2px;
+    }
+    
+    .tagline {
+      color: #666;
+      font-size: 13px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+
+    .card {
+      background: #111118;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 30px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      color: #00ff88;
+      margin-bottom: 20px;
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 15px;
+      background: #0a0a0f;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      border: 1px solid #1a1a2e;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #333;
+    }
+    .dot.green { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+    .dot.red { background: #ff4444; box-shadow: 0 0 8px #ff4444; }
+    .dot.yellow { background: #ffaa00; box-shadow: 0 0 8px #ffaa00; }
+    .dot.pulse { animation: pulse 1s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    button {
+      background: #00ff88;
+      color: #0a0a0f;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+      margin-top: 10px;
+    }
+
+    button:hover { background: #00cc66; }
+    button.danger { background: #ff4444; color: white; }
+    button.danger:hover { background: #cc0000; }
+
+    .log {
+      background: #0a0a0f;
+      border: 1px solid #1a1a2e;
+      border-radius: 8px;
+      padding: 15px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 15px;
+    }
+
+    .log-entry { 
+      padding: 3px 0; 
+      border-bottom: 1px solid #111;
+    }
+    .log-entry.ok { color: #00ff88; }
+    .log-entry.threat { color: #ff4444; }
+    .log-entry.info { color: #888; }
+
+    .device-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .device-item {
+      background: #0a0a0f;
+      border: 1px solid #1a1a2e;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .device-item .label { color: #666; font-size: 11px; margin-bottom: 4px; }
+    .device-item .value { color: #00ff88; font-size: 13px; font-weight: 600; }
+
+    .risk-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .risk-safe { background: #003322; color: #00ff88; border: 1px solid #00ff88; }
+    .risk-critical { background: #330000; color: #ff4444; border: 1px solid #ff4444; }
+    .risk-high { background: #332200; color: #ff8800; border: 1px solid #ff8800; }
+
+    #token-display {
+      font-family: monospace;
+      font-size: 11px;
+      color: #666;
+      word-break: break-all;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">⚓ ANCHOR</div>
+  <div class="tagline">Session Protection & Device Verification — SS26Hack 2026</div>
+</div>
+
+<div class="container">
+
+  <!-- Session Control -->
+  <div class="card">
+    <h2>🔐 Session Control</h2>
+    
+    <div class="status-bar">
+      <div class="dot" id="session-dot"></div>
+      <span id="session-status">No active session</span>
+    </div>
+
+    <div id="token-display">No token</div>
+
+    <button onclick="createSession()">Create Session</button>
+    <button onclick="killSession()" class="danger">Kill Session</button>
+  </div>
+
+  <!-- Device Fingerprint -->
+  <div class="card">
+    <h2>🖥️ Device Fingerprint</h2>
+    <div class="device-grid" id="device-grid">
+      <div class="device-item">
+        <div class="label">Canvas Hash</div>
+        <div class="value" id="d-canvas">—</div>
+      </div>
+      <div class="device-item">
+        <div class="label">Screen Resolution</div>
+        <div class="value" id="d-screen">—</div>
+      </div>
+      <div class="device-item">
+        <div class="label">Timezone</div>
+        <div class="value" id="d-timezone">—</div>
+      </div>
+      <div class="device-item">
+        <div class="label">CPU Cores</div>
+        <div class="value" id="d-cpu">—</div>
+      </div>
+      <div class="device-item">
+        <div class="label">Language</div>
+        <div class="value" id="d-language">—</div>
+      </div>
+      <div class="device-item">
+        <div class="label">WebGL</div>
+        <div class="value" id="d-webgl">—</div>
+      </div>
+    </div>
+
+    <button onclick="collectAndShow()">Collect Device Data</button>
+    <button onclick="verifyDevice()">Verify Device with Anchor</button>
+  </div>
+
+  <!-- Threat Simulation -->
+  <div class="card">
+    <h2>⚠️ Threat Simulation</h2>
+    <p style="color:#666; font-size:13px; margin-bottom:15px;">
+      Simulate a hacker using a stolen session token from a different device.
+    </p>
+    <button onclick="simulateHijack()" class="danger">🔴 Simulate Session Hijack</button>
+  </div>
+
+  <!-- Live Log -->
+  <div class="card">
+    <h2>📡 Anchor Live Log</h2>
+    <div class="log" id="log">
+      <div class="log-entry info">[Anchor] Ready. Waiting for session...</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="anchor.js"></script>
+<script>
+  // CONFIG — change these to your values
+  const ANCHOR_URL = 'http://127.0.0.1:8000';
+  const API_KEY = 'anchor-ul-2026-demo-key';
+  
+  let anchor = new AnchorSDK(API_KEY, ANCHOR_URL);
+  let currentToken = null;
+
+  function log(message, type = 'info') {
+    const logEl = document.getElementById('log');
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    logEl.prepend(entry);
+  }
+
+  function setSessionStatus(status, color) {
+    document.getElementById('session-status').textContent = status;
+    const dot = document.getElementById('session-dot');
+    dot.className = `dot ${color}`;
+  }
+
+  async function createSession() {
+    log('Creating session...', 'info');
+    try {
+      const res = await fetch(`${ANCHOR_URL}/session/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+        body: JSON.stringify({
+          user_id: 'student_001',
+          ip_address: '192.168.1.1',
+          user_agent: navigator.userAgent
+        })
+      });
+      const data = await res.json();
+      currentToken = data.token;
+      document.getElementById('token-display').textContent = 'Token: ' + currentToken;
+      setSessionStatus('Session active — ' + data.message, 'green');
+      log('Session created: ' + currentToken.slice(0, 8) + '...', 'ok');
+
+      // Auto-protect
+      anchor.sessionToken = currentToken;
+    } catch(e) {
+      log('Error: ' + e.message, 'threat');
+    }
+  }
+
+  function collectAndShow() {
+    const data = anchor.collectDeviceData();
+    document.getElementById('d-canvas').textContent = data.canvas_hash.slice(0, 12) + '...';
+    document.getElementById('d-screen').textContent = data.screen_resolution;
+    document.getElementById('d-timezone').textContent = data.timezone;
+    document.getElementById('d-cpu').textContent = data.hardware_concurrency + ' cores';
+    document.getElementById('d-language').textContent = data.language;
+    document.getElementById('d-webgl').textContent = data.webgl.slice(0, 20) + '...';
+    log('Device fingerprint collected from your real device', 'ok');
+  }
+
+  async function verifyDevice() {
+    if (!currentToken) { log('Create a session first', 'threat'); return; }
+    log('Verifying device with Anchor...', 'info');
+    const result = await anchor.verifyDevice(currentToken);
+    if (result.status === 'ok') {
+      log(`Device verified ✓ | Risk: ${result.risk?.level} (${result.risk?.score}/100)`, 'ok');
+    } else {
+      log(`THREAT: ${result.message} | Score: ${result.risk?.score}/100`, 'threat');
+      setSessionStatus('SESSION TERMINATED', 'red');
+      currentToken = null;
+    }
+  }
+
+  async function simulateHijack() {
+    if (!currentToken) { log('Create a session first', 'threat'); return; }
+    log('SIMULATING HIJACK — hacker using stolen token from different device...', 'threat');
+    
+    try {
+      const res = await fetch(`${ANCHOR_URL}/session/verify-device`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+        body: JSON.stringify({
+          token: currentToken,
+          canvas_hash: 'zzz999fakehacker888canvas777',
+          screen_resolution: '1366x768',
+          timezone: 'Europe/Moscow',
+          hardware_concurrency: 2,
+          language: 'ru-RU'
+        })
+      });
+      const result = await res.json();
+      if (result.status === 'threat') {
+        log(`ANCHOR DETECTED HIJACK ✓ | ${result.message}`, 'threat');
+        log(`Risk Score: ${result.risk?.score}/100 | Level: ${result.risk?.level?.toUpperCase()}`, 'threat');
+        result.risk?.reasons?.forEach(r => log(`  → ${r}`, 'threat'));
+        setSessionStatus('🔴 SESSION HIJACK DETECTED — TERMINATED', 'red');
+        currentToken = null;
+      }
+    } catch(e) {
+      log('Error: ' + e.message, 'threat');
+    }
+  }
+
+  async function killSession() {
+    if (!currentToken) { log('No active session', 'threat'); return; }
+    try {
+      await fetch(`${ANCHOR_URL}/session/kill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+        body: JSON.stringify({ token: currentToken })
+      });
+      log('Session killed manually', 'info');
+      setSessionStatus('Session terminated', '');
+      currentToken = null;
+      document.getElementById('token-display').textContent = 'No token';
+    } catch(e) {
+      log('Error: ' + e.message, 'threat');
+    }
+  }
+
+  // Auto collect device data on load
+  collectAndShow();
+</script>
+</body>
+</html>

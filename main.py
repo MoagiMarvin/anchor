@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from models import (
     SessionCreateRequest, SessionValidateRequest,
     SessionKillRequest, AnchorResponse, RiskScore,
@@ -13,6 +14,15 @@ app = FastAPI(
     title="Anchor",
     description="Session protection and threat detection API — SS26Hack 2026",
     version="1.0.0"
+)
+
+# Allow browser requests from any origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 @app.get("/")
@@ -43,11 +53,6 @@ def session_validate(body: SessionValidateRequest, client=Depends(verify_api_key
 
 @app.post("/session/verify-device", response_model=AnchorResponse)
 def session_verify_device(body: DeviceVerifyRequest, client=Depends(verify_api_key)):
-    """
-    The real device fingerprinting endpoint.
-    anchor.js calls this with actual browser/device data.
-    Detects if a different physical device is using a stolen session.
-    """
     if not check_rate_limit(client["api_key"]):
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
     result = verify_device(
