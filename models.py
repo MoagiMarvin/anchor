@@ -14,6 +14,46 @@ class SessionValidateRequest(BaseModel):
 class SessionKillRequest(BaseModel):
     token: str
 
+class DeviceVerifyRequest(BaseModel):
+    token: str
+    canvas_hash: str
+    screen_resolution: str
+    timezone: str
+    hardware_concurrency: int
+    language: str
+
+class IdentityRegisterRequest(BaseModel):
+    user_id: str
+    canvas_hash: str
+    screen_resolution: str
+    timezone: str
+    hardware_concurrency: int
+    language: str
+    webgl: Optional[str] = ""
+    platform: Optional[str] = ""
+    ip_address: Optional[str] = ""
+
+class IdentityVerifyLoginRequest(BaseModel):
+    user_id: str
+    canvas_hash: str
+    screen_resolution: str
+    timezone: str
+    hardware_concurrency: int
+    language: str
+    webgl: Optional[str] = ""
+    platform: Optional[str] = ""
+    ip_address: Optional[str] = ""
+
+class EncryptRequest(BaseModel):
+    data: dict
+    fields: list
+    client_key: str
+
+class DecryptRequest(BaseModel):
+    data: dict
+    fields: list
+    client_key: str
+
 class RiskScore(BaseModel):
     score: int
     level: str
@@ -24,11 +64,5 @@ class AnchorResponse(BaseModel):
     message: str
     token: Optional[str] = None
     risk: Optional[RiskScore] = None
-
-class DeviceVerifyRequest(BaseModel):
-    token: str
-    canvas_hash: str
-    screen_resolution: str
-    timezone: str
-    hardware_concurrency: int
-    language: str
+    did: Optional[str] = None
+    action: Optional[str] = None
