@@ -1,3 +1,4 @@
+from models import PrepareRecordRequest
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from models import (
@@ -223,3 +224,42 @@ def get_login_attempts(client=Depends(verify_api_key)):
         .limit(50)\
         .execute()
     return {"attempts": result.data, "count": len(result.data)}
+
+@app.post("/prepare-record")
+def prepare_record(body: PrepareRecordRequest, client=Depends(verify_api_key)):
+    """
+    Smart field-level protection for database records.
+    
+    Handles three actions per field:
+    - encrypt: full AES-256 encryption
+    - hash: searchable hash (for emails, usernames)
+    - both: hash for search + encrypt for display
+    - ignore: leave untouched
+    
+    Example for a student record:
+    {
+        "data": {
+            "student_id": "0901234567",
+            "email": "marvin@ul.ac.za",
+            "phone": "0712345678",
+            "course": "BSc CS"
+        },
+        "config": {
+            "student_id": "encrypt",
+            "email": "both",
+            "phone": "encrypt",
+            "course": "ignore"
+        },
+        "client_key": "ul-secret-key-2026"
+    }
+    """
+    if not check_rate_limit(client["api_key"]):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+
+    enc = AnchorEncryption(body.client_key)
+    result = enc.prepare_record(body.data, body.config)
+    return {
+        "status": "ok",
+        "message": "Record prepared for secure storage",
+        "data": result
+    }

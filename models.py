@@ -66,3 +66,8 @@ class AnchorResponse(BaseModel):
     risk: Optional[RiskScore] = None
     did: Optional[str] = None
     action: Optional[str] = None
+
+class PrepareRecordRequest(BaseModel):
+    data: dict
+    config: dict
+    client_key: str
