@@ -1,7 +1,14 @@
 fastapi
 uvicorn
 supabase
-pydantic
-pydantic-settings
 python-dotenv
-requests
+python-jose[cryptography]
+httpx
+pydantic==2.11.9
+cryptography
+pycryptodome
+
+# CSIR Recommended - Post Quantum Cryptography
+# liboqs-python (requires C compiler - install separately)
+# Full Dilithium3 available when liboqs compiled
+# Current: SHA3-512 hybrid (quantum-resistant fallback)

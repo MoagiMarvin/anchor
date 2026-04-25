@@ -263,3 +263,62 @@ def prepare_record(body: PrepareRecordRequest, client=Depends(verify_api_key)):
         "message": "Record prepared for secure storage",
         "data": result
     }
+
+# ─────────────────────────────────────────
+# PQC ENDPOINTS
+# Post-Quantum Cryptography token signing
+# CSIR SS26Hack 2026 recommendation
+# ─────────────────────────────────────────
+
+@app.post("/pqc/sign")
+def pqc_sign(body: dict, client=Depends(verify_api_key)):
+    """
+    Signs a token using quantum-safe cryptography.
+    Uses CRYSTALS-Dilithium3 (NIST FIPS 204) if available.
+    Falls back to SHA3-512 hybrid (still quantum-resistant).
+    
+    This is the CSIR recommended approach:
+    - Crypto agility
+    - Hybrid encryption
+    - Post-Quantum Cryptography
+    """
+    import os
+    from pqc import AnchorPQC
+
+    pqc = AnchorPQC(os.getenv("ANCHOR_SECRET", "anchor2026secret"))
+    token = pqc.sign_token(body)
+    info = pqc.get_algorithm_info()
+
+    return {
+        "status": "ok",
+        "signed_token": token,
+        "algorithm": info
+    }
+
+@app.post("/pqc/verify")
+def pqc_verify(body: dict, client=Depends(verify_api_key)):
+    """
+    Verifies a quantum-safe signed token.
+    Returns payload if valid.
+    Returns error if tampered with.
+    """
+    import os
+    from pqc import AnchorPQC
+
+    token = body.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Token required")
+
+    pqc = AnchorPQC(os.getenv("ANCHOR_SECRET", "anchor2026secret"))
+    result = pqc.verify_token(token)
+    return result
+
+@app.get("/pqc/info")
+def pqc_info(client=Depends(verify_api_key)):
+    """
+    Returns information about Anchor's quantum-safe algorithm.
+    """
+    import os
+    from pqc import AnchorPQC
+    pqc = AnchorPQC(os.getenv("ANCHOR_SECRET", "anchor2026secret"))
+    return pqc.get_algorithm_info()
