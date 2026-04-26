@@ -1,141 +1,107 @@
-"""
-Anchor PQC Module — Post-Quantum Cryptography
-CSIR SS26Hack 2026 Recommendation: CRYSTALS-Dilithium
-
-Current implementation: SHA3-512 Hybrid HMAC
-This is quantum-resistant and follows CSIR's "crypto agility" principle.
-The interface is identical to Dilithium — swap in when liboqs compiles.
-
-Why SHA3-512 is quantum-resistant:
-- Grover's algorithm halves hash security: 512 → 256 bits
-- 256-bit security is still considered unbreakable
-- NIST chose SHA-3 specifically for post-quantum transition
-- This IS the hybrid approach CSIR recommended
-"""
-
 import os
-import hmac
-import hashlib
 import base64
 import json
+import hashlib
+import hmac
 from datetime import datetime, timezone
 
-DILITHIUM_AVAILABLE = False
-print("[Anchor PQC] SHA3-512 Hybrid active — quantum-resistant signing ready")
+try:
+    import oqs
+    sig_test = oqs.Signature("ML-DSA-65")
+    DILITHIUM_AVAILABLE = True
+    print("[Anchor PQC] CRYSTALS-Dilithium (ML-DSA-65) ACTIVE - NIST FIPS 204")
+except Exception as e:
+    DILITHIUM_AVAILABLE = False
+    print("[Anchor PQC] Dilithium unavailable - using SHA3-512 hybrid")
 
 
 class AnchorPQC:
-    """
-    Post-Quantum Cryptography signing for Anchor.
-    
-    Implements CSIR's recommended approach:
-    - Crypto agility (swappable algorithm)
-    - Hybrid encryption (classical + PQ combined)
-    - SHA3-512 (quantum-resistant hash function)
-    
-    Drop-in upgrade path to Dilithium3 when 
-    liboqs C library is compiled on the server.
-    """
-
     def __init__(self, secret: str):
         self.secret = secret.encode()
-        self.algorithm = "SHA3-512-HYBRID"
+        self.algorithm = "ML-DSA-65" if DILITHIUM_AVAILABLE else "SHA3-512-HYBRID"
 
     def sign_token(self, payload: dict) -> str:
-        """
-        Signs a token with quantum-safe signature.
-        Cannot be forged or broken by quantum computers.
-        """
         payload["issued_at"] = datetime.now(timezone.utc).isoformat()
         payload["algorithm"] = self.algorithm
         payload["issuer"] = "did:anchor:system"
         payload["quantum_safe"] = True
-
+        payload["standard"] = "NIST FIPS 204" if DILITHIUM_AVAILABLE else "NIST FIPS 202"
         payload_str = json.dumps(payload, sort_keys=True)
         payload_b64 = base64.b64encode(payload_str.encode()).decode()
-        signature = self._hybrid_sign(payload_str)
-
+        if DILITHIUM_AVAILABLE:
+            signature = self._dilithium_sign(payload_str)
+        else:
+            signature = self._hybrid_sign(payload_str)
         return f"{self.algorithm}.{payload_b64}.{signature}"
 
     def verify_token(self, token: str) -> dict:
-        """
-        Verifies a signed token.
-        Returns payload if valid, error if tampered.
-        """
         try:
             parts = token.split(".", 2)
             if len(parts) != 3:
                 return {"valid": False, "reason": "Invalid token format"}
-
             algorithm, payload_b64, signature = parts
             payload_str = base64.b64decode(payload_b64).decode()
             payload = json.loads(payload_str)
-
-            valid = self._hybrid_verify(payload_str, signature)
-
+            if algorithm == "ML-DSA-65" and DILITHIUM_AVAILABLE:
+                valid = self._dilithium_verify(payload_str, signature)
+            else:
+                valid = self._hybrid_verify(payload_str, signature)
             if not valid:
-                return {
-                    "valid": False,
-                    "reason": "Signature verification failed — token tampered or forged"
-                }
-
-            return {
-                "valid": True,
-                "payload": payload,
-                "algorithm": algorithm,
-                "quantum_safe": True
-            }
-
+                return {"valid": False, "reason": "Signature verification failed"}
+            return {"valid": True, "payload": payload, "algorithm": algorithm, "quantum_safe": True}
         except Exception as e:
             return {"valid": False, "reason": str(e)}
 
+    def _dilithium_sign(self, data: str) -> str:
+        with oqs.Signature("ML-DSA-65") as signer:
+            public_key = signer.generate_keypair()
+            signature = signer.sign(data.encode())
+            pub_key_b64 = base64.b64encode(public_key).decode()
+            sig_b64 = base64.b64encode(signature).decode()
+            return pub_key_b64 + ":" + sig_b64
+
+    def _dilithium_verify(self, data: str, combined: str) -> bool:
+        try:
+            pub_key_b64, sig_b64 = combined.split(":", 1)
+            public_key = base64.b64decode(pub_key_b64)
+            signature = base64.b64decode(sig_b64)
+            with oqs.Signature("ML-DSA-65") as verifier:
+                return verifier.verify(data.encode(), signature, public_key)
+        except Exception:
+            return False
+
     def _hybrid_sign(self, data: str) -> str:
-        """
-        SHA3-512 Hybrid signing.
-        
-        Layer 1: SHA3-512 hash (quantum-resistant)
-        Layer 2: HMAC with secret (authentication)
-        Layer 3: Random salt (prevents replay attacks)
-        
-        This gives 256-bit post-quantum security.
-        """
         sha3_hash = hashlib.sha3_512(data.encode()).digest()
-        signature = hmac.new(
-            self.secret,
-            sha3_hash,
-            hashlib.sha3_512
-        ).digest()
+        signature = hmac.new(self.secret, sha3_hash, hashlib.sha3_512).digest()
         salt = os.urandom(16)
-        final = salt + signature
-        return base64.b64encode(final).decode()
+        return base64.b64encode(salt + signature).decode()
 
     def _hybrid_verify(self, data: str, signature_b64: str) -> bool:
-        """Verifies SHA3-512 hybrid signature."""
         try:
             combined = base64.b64decode(signature_b64)
-            salt = combined[:16]
             stored_sig = combined[16:]
-
             sha3_hash = hashlib.sha3_512(data.encode()).digest()
-            expected = hmac.new(
-                self.secret,
-                sha3_hash,
-                hashlib.sha3_512
-            ).digest()
-
+            expected = hmac.new(self.secret, sha3_hash, hashlib.sha3_512).digest()
             return hmac.compare_digest(stored_sig, expected)
         except Exception:
             return False
 
     def get_algorithm_info(self) -> dict:
-        return {
-            "algorithm": "SHA3-512 Hybrid HMAC",
-            "standard": "NIST SHA-3 (FIPS 202)",
-            "quantum_safe": True,
-            "security_level": "256-bit post-quantum security",
-            "recommended_by": "CSIR, NIST post-quantum transition guidelines",
-            "description": "SHA-3 designed with quantum resistance. Grover's algorithm only reduces to 256-bit security — still unbreakable.",
-            "crypto_agility": True,
-            "upgrade_path": "CRYSTALS-Dilithium3 (NIST FIPS 204) — drop-in when liboqs compiled",
-            "csir_alignment": "Implements CSIR SS26Hack recommended hybrid encryption approach"
-        }
+        if DILITHIUM_AVAILABLE:
+            return {
+                "algorithm": "CRYSTALS-Dilithium (ML-DSA-65)",
+                "standard": "NIST FIPS 204",
+                "quantum_safe": True,
+                "security_level": "Category 3 - 256-bit quantum security",
+                "recommended_by": "CSIR SS26Hack 2026, NIST",
+                "description": "Lattice-based digital signature. Resistant to Shors and Grovers algorithms.",
+                "status": "ACTIVE - running real Dilithium on Linux"
+            }
+        else:
+            return {
+                "algorithm": "SHA3-512 Hybrid HMAC",
+                "standard": "NIST FIPS 202",
+                "quantum_safe": True,
+                "security_level": "256-bit post-quantum security",
+                "status": "FALLBACK - SHA3-512 hybrid active"
+            }
