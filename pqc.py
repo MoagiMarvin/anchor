@@ -8,11 +8,18 @@ from datetime import datetime, timezone
 try:
     import oqs
     sig_test = oqs.Signature("ML-DSA-65")
+    sig_test.generate_keypair()
     DILITHIUM_AVAILABLE = True
-    print("[Anchor PQC] CRYSTALS-Dilithium (ML-DSA-65) ACTIVE - NIST FIPS 204")
-except Exception as e:
+    print("[Anchor PQC] CRYSTALS-Dilithium ML-DSA-65 ACTIVE - NIST FIPS 204")
+except Exception:
     DILITHIUM_AVAILABLE = False
-    print("[Anchor PQC] Dilithium unavailable - using SHA3-512 hybrid")
+    print("[Anchor PQC] SHA3-512 Hybrid active - quantum resistant fallback")
+
+if DILITHIUM_AVAILABLE:
+    _signer = oqs.Signature("ML-DSA-65")
+    PUBLIC_KEY = _signer.generate_keypair()
+    SECRET_KEY = _signer.export_secret_key()
+    print("[Anchor PQC] Keypair generated - public key ready for verification")
 
 
 class AnchorPQC:
@@ -48,25 +55,30 @@ class AnchorPQC:
                 valid = self._hybrid_verify(payload_str, signature)
             if not valid:
                 return {"valid": False, "reason": "Signature verification failed"}
-            return {"valid": True, "payload": payload, "algorithm": algorithm, "quantum_safe": True}
+            return {
+                "valid": True,
+                "payload": payload,
+                "algorithm": algorithm,
+                "quantum_safe": True,
+                "standard": "NIST FIPS 204" if DILITHIUM_AVAILABLE else "NIST FIPS 202"
+            }
         except Exception as e:
             return {"valid": False, "reason": str(e)}
 
     def _dilithium_sign(self, data: str) -> str:
-        with oqs.Signature("ML-DSA-65") as signer:
-            public_key = signer.generate_keypair()
-            signature = signer.sign(data.encode())
-            pub_key_b64 = base64.b64encode(public_key).decode()
-            sig_b64 = base64.b64encode(signature).decode()
-            return pub_key_b64 + ":" + sig_b64
+        signer = oqs.Signature("ML-DSA-65", SECRET_KEY)
+        signature = signer.sign(data.encode())
+        sig_b64 = base64.b64encode(signature).decode()
+        pub_b64 = base64.b64encode(PUBLIC_KEY).decode()
+        return pub_b64 + "||" + sig_b64
 
     def _dilithium_verify(self, data: str, combined: str) -> bool:
         try:
-            pub_key_b64, sig_b64 = combined.split(":", 1)
-            public_key = base64.b64decode(pub_key_b64)
+            pub_b64, sig_b64 = combined.split("||", 1)
+            public_key = base64.b64decode(pub_b64)
             signature = base64.b64decode(sig_b64)
-            with oqs.Signature("ML-DSA-65") as verifier:
-                return verifier.verify(data.encode(), signature, public_key)
+            verifier = oqs.Signature("ML-DSA-65")
+            return verifier.verify(data.encode(), signature, public_key)
         except Exception:
             return False
 
@@ -95,7 +107,7 @@ class AnchorPQC:
                 "security_level": "Category 3 - 256-bit quantum security",
                 "recommended_by": "CSIR SS26Hack 2026, NIST",
                 "description": "Lattice-based digital signature. Resistant to Shors and Grovers algorithms.",
-                "status": "ACTIVE - running real Dilithium on Linux"
+                "status": "ACTIVE - real Dilithium running on Linux"
             }
         else:
             return {
