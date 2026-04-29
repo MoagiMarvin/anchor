@@ -54,6 +54,11 @@ class DecryptRequest(BaseModel):
     fields: list
     client_key: str
 
+class PrepareRecordRequest(BaseModel):
+    data: dict
+    config: dict
+    client_key: str
+
 class RiskScore(BaseModel):
     score: int
     level: str
@@ -67,7 +72,27 @@ class AnchorResponse(BaseModel):
     did: Optional[str] = None
     action: Optional[str] = None
 
-class PrepareRecordRequest(BaseModel):
-    data: dict
-    config: dict
-    client_key: str
+class SessionCreateResponse(BaseModel):
+    status: str
+    message: str
+    pqc_token: Optional[str] = None
+    session_id: Optional[str] = None
+    token_type: Optional[str] = None
+    expires_at: Optional[str] = None
+
+class WebAuthnChallengeRequest(BaseModel):
+    user_id: str
+
+class WebAuthnRegisterRequest(BaseModel):
+    user_id: str
+    credential_id: str
+    public_key: str
+    challenge: str
+    device_type: Optional[str] = "unknown"
+
+class WebAuthnVerifyRequest(BaseModel):
+    user_id: str
+    credential_id: str
+    signature: str
+    challenge: str
+    authenticator_data: Optional[str] = ""
