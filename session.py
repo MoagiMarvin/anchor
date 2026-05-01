@@ -12,26 +12,28 @@ load_dotenv()
 
 SESSION_EXPIRE_HOURS = 2
 
-def create_session(user_id: str, ip_address: str, user_agent: str) -> str:
+def _hash_uuid(session_uuid):
+    return hashlib.sha256(f"anchor_session:{session_uuid}".encode()).hexdigest()
+
+def create_session(user_id, ip_address, user_agent):
     from pqc import AnchorPQC
     db = get_db()
     session_uuid = str(uuid.uuid4())
     fingerprint = build_fingerprint(ip_address, user_agent)
-    expires_at = (datetime.now(timezone.utc) + timedelta(hours=SESSION_EXPIRE_HOURS)).isoformat()
-
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    session_ref = _hash_uuid(session_uuid)
     pqc = AnchorPQC(os.getenv("ANCHOR_SECRET", "anchor2026secret"))
     pqc_token = pqc.sign_token({
-        "session_uuid": session_uuid,
+        "session_ref": session_ref,
         "user_id": user_id,
-        "fingerprint": fingerprint[:16],
+        "fingerprint_hint": fingerprint[:8],
         "expires_at": expires_at
     })
-
     token_hash = hashlib.sha256(pqc_token.encode()).hexdigest()
-
     db.table("anchor_sessions").insert({
         "token": session_uuid,
         "session_uuid": session_uuid,
+        "session_ref": session_ref,
         "pqc_token_hash": token_hash,
         "user_id": user_id,
         "fingerprint": fingerprint,
@@ -41,91 +43,48 @@ def create_session(user_id: str, ip_address: str, user_agent: str) -> str:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": expires_at
     }).execute()
-
     log_event(session_uuid, "session_created_pqc")
     return pqc_token
 
-def validate_session(token: str, ip_address: str, user_agent: str) -> dict:
+def validate_session(token, ip_address, user_agent):
     from pqc import AnchorPQC
     db = get_db()
     pqc = AnchorPQC(os.getenv("ANCHOR_SECRET", "anchor2026secret"))
-
     verification = pqc.verify_token(token)
     if not verification.get("valid"):
-        return {
-            "status": "threat",
-            "message": "Invalid token signature — token forged or tampered",
-            "risk": {"score": 100, "level": "critical", "reasons": ["PQC signature invalid"]}
-        }
-
+        return {"status": "threat", "message": "Invalid token signature", "risk": {"score": 100, "level": "critical", "reasons": ["PQC signature invalid"]}}
     payload = verification["payload"]
-    session_uuid = payload.get("session_uuid")
-
-    result = db.table("anchor_sessions")\
-        .select("*")\
-        .eq("session_uuid", session_uuid)\
-        .eq("status", "active")\
-        .execute()
-
+    session_ref = payload.get("session_ref")
+    result = db.table("anchor_sessions").select("*").eq("session_ref", session_ref).eq("status", "active").execute()
     if not result.data:
-        return {
-            "status": "threat",
-            "message": "Session not found or already terminated",
-            "risk": {"score": 100, "level": "critical", "reasons": ["Session not in database"]}
-        }
-
+        return {"status": "threat", "message": "Session not found", "risk": {"score": 100, "level": "critical", "reasons": ["Session not found"]}}
     session = result.data[0]
-
     expires_at = datetime.fromisoformat(session["expires_at"])
     if datetime.now(timezone.utc) > expires_at:
         kill_session(token)
-        return {
-            "status": "threat",
-            "message": "Session expired",
-            "risk": {"score": 50, "level": "medium", "reasons": ["Session expired"]}
-        }
-
+        return {"status": "threat", "message": "Session expired", "risk": {"score": 50, "level": "medium", "reasons": ["Expired"]}}
     fp_match = fingerprints_match(session["fingerprint"], ip_address, user_agent)
     ip_changed = session.get("ip_address") != ip_address
     ua_changed = session.get("user_agent") != user_agent
     risk = calculate_risk_score(fp_match, ip_changed, ua_changed, 0)
-
     if not fp_match:
         kill_session(token)
-        log_threat(session_uuid, "fingerprint_mismatch_pqc", ip_address)
-        return {
-            "status": "threat",
-            "message": "Session hijack detected — session terminated",
-            "risk": risk
-        }
+        log_threat(session["session_uuid"], "fingerprint_mismatch_pqc", ip_address)
+        return {"status": "threat", "message": "Session hijack detected", "risk": risk}
+    log_event(session["session_uuid"], "session_validated_pqc")
+    return {"status": "ok", "message": "Session verified - quantum safe", "risk": risk}
 
-    log_event(session_uuid, "session_validated_pqc")
-    return {
-        "status": "ok",
-        "message": "Session verified — quantum safe",
-        "risk": risk
-    }
-
-def kill_session(token: str) -> dict:
+def kill_session(token):
     from pqc import AnchorPQC
     db = get_db()
-
     try:
         pqc = AnchorPQC(os.getenv("ANCHOR_SECRET", "anchor2026secret"))
         verification = pqc.verify_token(token)
         if verification.get("valid"):
-            session_uuid = verification["payload"].get("session_uuid")
-            db.table("anchor_sessions")\
-                .update({"status": "killed"})\
-                .eq("session_uuid", session_uuid)\
-                .execute()
-            log_event(session_uuid, "session_killed")
+            session_ref = verification["payload"].get("session_ref")
+            db.table("anchor_sessions").update({"status": "killed"}).eq("session_ref", session_ref).execute()
+            log_event(session_ref, "session_killed")
             return {"status": "ok", "message": "Session terminated"}
     except Exception:
         pass
-
-    db.table("anchor_sessions")\
-        .update({"status": "killed"})\
-        .eq("token", token)\
-        .execute()
     return {"status": "ok", "message": "Session terminated"}

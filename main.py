@@ -6,7 +6,9 @@ from models import (
     SessionKillRequest, AnchorResponse, RiskScore,
     DeviceVerifyRequest, EncryptRequest, DecryptRequest,
     PrepareRecordRequest, IdentityRegisterRequest,
-    IdentityVerifyLoginRequest, SessionCreateResponse
+    IdentityVerifyLoginRequest,
+    WebAuthnChallengeRequest, WebAuthnRegisterRequest,
+    WebAuthnVerifyRequest
 )
 from session import create_session, validate_session, kill_session
 from device import verify_device
@@ -96,7 +98,7 @@ def identity_verify_login(body: IdentityVerifyLoginRequest, client=Depends(verif
 # Merged PQC + Supabase tokens
 # ─────────────────────────────────────────
 
-@app.post("/session/create", response_model=SessionCreateResponse)
+@app.post("/session/create", response_model=AnchorResponse)
 def session_create(body: SessionCreateRequest, client=Depends(verify_api_key)):
     """
     Creates a quantum-safe session token.
@@ -109,15 +111,11 @@ def session_create(body: SessionCreateRequest, client=Depends(verify_api_key)):
     if not check_rate_limit(client["api_key"]):
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
-    result = create_session(body.user_id, body.ip_address, body.user_agent)
-
-    return SessionCreateResponse(
+    token = create_session(body.user_id, body.ip_address, body.user_agent)
+    return AnchorResponse(
         status="ok",
-        message=f"Quantum-safe session created for: {client['client_name']}",
-        pqc_token=result["pqc_token"],
-        session_id=result["session_id"],
-        token_type=result["token_type"],
-        expires_at=result["expires_at"]
+        message="Quantum-safe session created for: " + client["client_name"],
+        token=token
     )
 
 @app.post("/session/validate", response_model=AnchorResponse)
