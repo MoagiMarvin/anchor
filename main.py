@@ -8,9 +8,15 @@ from models import (
     PrepareRecordRequest, IdentityRegisterRequest,
     IdentityVerifyLoginRequest,
     WebAuthnChallengeRequest, WebAuthnRegisterRequest,
-    WebAuthnVerifyRequest
+    WebAuthnVerifyRequest,
+    SessionEventRequest                                  # ← new
 )
 from session import create_session, validate_session, kill_session
+from session_events import (                             # ← new
+    record_session_event,
+    get_session_events,
+    get_flagged_events
+)
 from device import verify_device
 from identity import register_identity, verify_login
 from encryption import AnchorEncryption
@@ -41,6 +47,7 @@ def root():
         "quantum_safe": True,
         "algorithm": "CRYSTALS-Dilithium ML-DSA-65"
     }
+
 
 # ─────────────────────────────────────────
 # IDENTITY ENDPOINTS
@@ -93,6 +100,7 @@ def identity_verify_login(body: IdentityVerifyLoginRequest, client=Depends(verif
         risk=RiskScore(**result["risk"]) if "risk" in result else None
     )
 
+
 # ─────────────────────────────────────────
 # SESSION ENDPOINTS
 # Merged PQC + Supabase tokens
@@ -102,10 +110,10 @@ def identity_verify_login(body: IdentityVerifyLoginRequest, client=Depends(verif
 def session_create(body: SessionCreateRequest, client=Depends(verify_api_key)):
     """
     Creates a quantum-safe session token.
-    
+
     Returns a CRYSTALS-Dilithium signed token (ML-DSA-65).
     Also logs to Supabase so the Watcher can monitor it.
-    
+
     The client stores this token and sends it on every request.
     """
     if not check_rate_limit(client["api_key"]):
@@ -155,6 +163,110 @@ def session_kill(body: SessionKillRequest, client=Depends(verify_api_key)):
     result = kill_session(body.token)
     return AnchorResponse(status=result["status"], message=result["message"])
 
+
+# ─────────────────────────────────────────
+# BEHAVIOURAL MONITORING ENDPOINTS
+# Post-login session surveillance
+# Watches what users do — not just who they are
+# ─────────────────────────────────────────
+
+@app.post("/session/event", response_model=AnchorResponse)
+def session_event(body: SessionEventRequest, client=Depends(verify_api_key)):
+    """
+    Called by the institution's app every time a user does
+    something meaningful after login.
+
+    Examples of actions to report:
+      - "view_records"
+      - "export_records"
+      - "admin_access"
+      - "database_query"
+      - "bulk_download"
+      - "delete_records"
+
+    Anchor's AI agent analyses the full session timeline and returns:
+      ok      → normal activity, keep going
+      warning → suspicious, monitoring escalated
+      threat  → session killed or re-auth required
+    """
+    if not check_rate_limit(client["api_key"]):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+
+    result = record_session_event(
+        token=body.token,
+        action=body.action,
+        endpoint=body.endpoint,
+        data_volume=body.data_volume,
+        ip_address=body.ip_address,
+        user_agent=body.user_agent,
+        client_id=client.get("id")
+    )
+
+    return AnchorResponse(
+        status=result["status"],
+        message=result["message"],
+        risk=RiskScore(
+            score=result.get("risk_score", 0),
+            level=_risk_level(result.get("risk_score", 0)),
+            reasons=[result.get("explanation", "")]
+        ) if result.get("risk_score", 0) > 0 else None
+    )
+
+
+@app.get("/session/{session_uuid}/events")
+def session_event_history(session_uuid: str, client=Depends(verify_api_key)):
+    """
+    Full event timeline for a session.
+    Used by the threat dashboard for session drill-down.
+    """
+    events = get_session_events(session_uuid)
+    return {"session_uuid": session_uuid, "events": events, "count": len(events)}
+
+
+@app.get("/session/{session_uuid}/analysis")
+def session_analysis(session_uuid: str, client=Depends(verify_api_key)):
+    """
+    Latest AI agent verdict for a specific session.
+    Plain-English explanation of what happened and why.
+    """
+    from database import get_db
+    db = get_db()
+    result = db.table("anchor_ai_analyses") \
+        .select("*") \
+        .eq("session_uuid", session_uuid) \
+        .order("created_at", desc=True) \
+        .limit(1) \
+        .execute()
+    analysis = result.data[0] if result.data else {}
+    return {"session_uuid": session_uuid, "analysis": analysis}
+
+
+@app.get("/events/flagged")
+def flagged_events(client=Depends(verify_api_key)):
+    """
+    All flagged events across all sessions.
+    Live threat feed for the dashboard.
+    """
+    events = get_flagged_events(limit=50)
+    return {"events": events, "count": len(events)}
+
+
+@app.get("/analyses")
+def ai_analyses(client=Depends(verify_api_key)):
+    """
+    Recent AI agent verdicts across all sessions.
+    Threat intelligence feed for the dashboard.
+    """
+    from database import get_db
+    db = get_db()
+    result = db.table("anchor_ai_analyses") \
+        .select("*") \
+        .order("created_at", desc=True) \
+        .limit(20) \
+        .execute()
+    return {"analyses": result.data, "count": len(result.data)}
+
+
 # ─────────────────────────────────────────
 # ENCRYPTION ENDPOINTS
 # ─────────────────────────────────────────
@@ -183,6 +295,7 @@ def prepare_record(body: PrepareRecordRequest, client=Depends(verify_api_key)):
     result = enc.prepare_record(body.data, body.config)
     return {"status": "ok", "message": "Record prepared for secure storage", "data": result}
 
+
 # ─────────────────────────────────────────
 # PQC ENDPOINTS
 # ─────────────────────────────────────────
@@ -209,6 +322,7 @@ def pqc_info(client=Depends(verify_api_key)):
     from pqc import AnchorPQC
     pqc = AnchorPQC(os.getenv("ANCHOR_SECRET", "anchor2026secret"))
     return pqc.get_algorithm_info()
+
 
 # ─────────────────────────────────────────
 # WATCHER FEED
@@ -250,6 +364,7 @@ def get_sessions(client=Depends(verify_api_key)):
         .limit(50)\
         .execute()
     return {"sessions": result.data, "count": len(result.data)}
+
 
 # ─────────────────────────────────────────
 # WEBAUTHN ENDPOINTS
@@ -312,3 +427,14 @@ def webauthn_credentials(user_id: str, client=Depends(verify_api_key)):
     """
     from webauthn import get_user_credentials
     return get_user_credentials(user_id, client["id"])
+
+
+# ─────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────
+
+def _risk_level(score: int) -> str:
+    if score >= 80: return "critical"
+    if score >= 60: return "high"
+    if score >= 40: return "medium"
+    return "low"

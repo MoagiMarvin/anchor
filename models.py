@@ -96,3 +96,12 @@ class WebAuthnVerifyRequest(BaseModel):
     signature: str
     challenge: str
     authenticator_data: Optional[str] = ""
+
+class SessionEventRequest(BaseModel):
+    token:       str
+    action:      str
+    endpoint:    str  = None
+    data_volume: int  = 0
+    ip_address:  str  = None
+    user_agent:  str  = None
+    user_role:   str  = None
