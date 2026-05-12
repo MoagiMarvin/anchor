@@ -71,6 +71,11 @@ class AnchorResponse(BaseModel):
     risk: Optional[RiskScore] = None
     did: Optional[str] = None
     action: Optional[str] = None
+    session_uuid: Optional[str] = None
+    risk_score: Optional[int] = None
+    action_required: Optional[str] = None
+    attack_pattern: Optional[str] = None
+    popia_concern: Optional[bool] = None
 
 class SessionCreateResponse(BaseModel):
     status: str

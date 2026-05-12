@@ -377,6 +377,8 @@ def _is_breach(verdict: dict) -> bool:
     pattern       = verdict.get("attack_pattern", "")
     popia_concern = verdict.get("popia_concern", False)
 
+    if risk >= 90:  # Any critical risk is a potential breach
+        return True
     if risk >= BREACH_RISK_THRESHOLD and pattern in BREACH_PATTERNS:
         return True
     if popia_concern and risk >= 70:

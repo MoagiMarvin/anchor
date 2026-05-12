@@ -228,8 +228,13 @@ def session_event(body: SessionEventRequest, client=Depends(verify_api_key)):
     )
 
     return AnchorResponse(
-        status  = result["status"],
-        message = result["message"],
+        status          = result["status"],
+        message         = result["message"],
+        session_uuid    = result.get("session_uuid"),
+        risk_score      = result.get("risk_score", 0),
+        action_required = result.get("action_required"),
+        attack_pattern  = result.get("attack_pattern"),
+        popia_concern   = result.get("popia_concern"),
         risk    = RiskScore(
             score   = result.get("risk_score", 0),
             level   = _risk_level(result.get("risk_score", 0)),
