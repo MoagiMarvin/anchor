@@ -23,7 +23,7 @@ from ml.anomaly_detector import get_detector
 #   80–100 → kill    (terminate session immediately)
 # ─────────────────────────────────────────
 
-GEMINI_MODEL   = "gemini-2.0-flash"
+GEMINI_MODEL   = "gemini-2.5-flash"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Only call Gemini when anomaly score crosses this threshold

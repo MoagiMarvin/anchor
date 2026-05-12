@@ -27,7 +27,7 @@ load_dotenv()
 #   - Manual trigger from admin dashboard
 # ─────────────────────────────────────────
 
-GEMINI_MODEL   = "gemini-2.0-flash"
+GEMINI_MODEL   = "gemini-2.5-flash"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 BREACH_PATTERNS = {"data exfiltration", "insider threat"}
