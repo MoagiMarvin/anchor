@@ -98,6 +98,32 @@ def record_session_event(
             "honeypot":        True   # internal flag — not exposed to attacker
         }
 
+    # ── Step 3.5: THE SPIDERWEB TRAP ──────────────────────────
+    # If they touch forbidden paths or other students' data,
+    # silently flip the session into honeypot mode.
+    FORBIDDEN_PATHS = ["/admin", "/api/internal", "/system", "/config"]
+    is_forbidden    = any(path in (endpoint or "") for path in FORBIDDEN_PATHS)
+    
+    # Check for IDOR (viewing other student's data)
+    is_idor = "view_pii" in action and user_id not in (endpoint or "")
+
+    if is_forbidden or is_idor:
+        log_threat(session_uuid, f"spiderweb_trap:{'forbidden_path' if is_forbidden else 'idor'}", ip_address)
+        
+        # Silently flip to honeypot
+        db.table("anchor_sessions").update({"is_honeypot": True}).eq("session_uuid", session_uuid).execute()
+        
+        # Get the fake response immediately
+        fake_response = get_honeypot_response(action, endpoint)
+        return {
+            "status":          "ok",
+            "message":         fake_response.get("message", "Request processed"),
+            "risk_score":      90,
+            "action_required": "none",
+            "explanation":     "Hacker diverted to honeypot containment.",
+            "honeypot":        True
+        }
+
     # ── Step 4: Store the event (real sessions only) ─────────
     created_at   = datetime.now(timezone.utc).isoformat()
     event_record = {

@@ -1,21 +1,37 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from database import get_db
 
-def log_threat(token: str, reason: str, ip_address: str):
+def log_event(session_uuid, event_type, data_volume=0):
     db = get_db()
-    db.table("anchor_threats").insert({
-        "token": token,
-        "reason": reason,
-        "ip_address": ip_address,
-        "detected_at": datetime.utcnow().isoformat()
+    db.table("anchor_session_events").insert({
+        "session_uuid": session_uuid,
+        "action": event_type,
+        "data_volume": data_volume,
+        "created_at": datetime.now(timezone.utc).isoformat()
     }).execute()
-    print(f"[ANCHOR WATCHER] THREAT DETECTED — {reason} — IP: {ip_address}")
 
-def log_event(token: str, event: str):
+def log_threat(session_uuid, threat_type, ip_address):
     db = get_db()
-    db.table("anchor_events").insert({
-        "token": token,
-        "event": event,
-        "timestamp": datetime.utcnow().isoformat()
+    # Corrected column: 'event_type' instead of 'threat_type'
+    db.table("anchor_threats").insert({
+        "session_uuid": session_uuid,
+        "event_type": threat_type,
+        "ip_address": ip_address,
+        "risk_score": 100,
+        "status": "flagged",
+        "created_at": datetime.now(timezone.utc).isoformat()
     }).execute()
+
+def get_stats():
+    db = get_db()
+    threats = db.table("anchor_threats").select("count", count="exact").execute()
+    events = db.table("anchor_session_events").select("count", count="exact").execute()
+    flagged = db.table("anchor_session_events").select("count", count="exact").eq("flagged", True).execute()
+    
+    return {
+        "total_threats": threats.count if threats.count is not None else 0,
+        "total_events": events.count if events.count is not None else 0,
+        "flagged_events": flagged.count if flagged.count is not None else 0,
+        "ai_analyses_run": threats.count if threats.count is not None else 0 # Mock stat
+    }
