@@ -22,6 +22,7 @@ from identity import register_identity, verify_login
 from encryption import AnchorEncryption
 from auth import verify_api_key
 from limiter import check_rate_limit
+from enrollment import router as enrollment_router  # NEW
 
 app = FastAPI(
     title="Anchor",
@@ -37,15 +38,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(enrollment_router)  # NEW
+
 @app.get("/")
 def root():
     return {
-        "message":    "Anchor is running",
-        "status":     "ok",
-        "version":    "2.0.0",
-        "tagline":    "Identity & Session Protection Platform",
+        "message":      "Anchor is running",
+        "status":       "ok",
+        "version":      "2.0.0",
+        "tagline":      "Identity & Session Protection Platform",
         "quantum_safe": True,
-        "algorithm":  "CRYSTALS-Dilithium ML-DSA-65"
+        "algorithm":    "CRYSTALS-Dilithium ML-DSA-65"
     }
 
 
@@ -150,14 +153,20 @@ def session_create(body: SessionCreateRequest, client=Depends(verify_api_key)):
 @app.post("/session/validate", response_model=AnchorResponse)
 def session_validate(body: SessionValidateRequest, client=Depends(verify_api_key)):
     """
-    Three-layer validation:
+    Four-layer validation:
     1. Dilithium signature verification (quantum safe)
     2. Supabase session check (watcher monitoring)
     3. Device fingerprint check (hijack detection)
+    4. Enrolled device check (institutional hardware registry)
     """
     if not check_rate_limit(client["api_key"]):
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
-    result = validate_session(body.token, body.ip_address, body.user_agent)
+    result = validate_session(
+        body.token,
+        body.ip_address,
+        body.user_agent,
+        client["api_key"]  # NEW — needed for enrollment check
+    )
     return AnchorResponse(
         status  = result["status"],
         message = result["message"],
@@ -411,10 +420,39 @@ def dashboard_stats(client=Depends(verify_api_key)):
         .select("id", count="exact").execute()
 
     return {
-        "total_threats":           threats.count    or 0,
-        "active_honeypots":        honeypots.count  or 0,
-        "flagged_events":          flagged.count     or 0,
-        "ai_analyses_run":         analyses.count   or 0,
+        "total_threats":    threats.count   or 0,
+        "active_honeypots": honeypots.count or 0,
+        "flagged_events":   flagged.count   or 0,
+        "ai_analyses_run":  analyses.count  or 0,
+    }
+
+
+# ─────────────────────────────────────────
+# ENROLLMENT STATS
+# Institutional device registry counts
+# ─────────────────────────────────────────
+
+@app.get("/enroll/stats")
+def enrollment_stats(client=Depends(verify_api_key)):
+    """
+    How many institutional devices are enrolled for this tenant.
+    IT admin reads from here to audit the device registry.
+    """
+    from enrollment import get_tenant_id
+    from database import get_db
+    db        = get_db()
+    tenant_id = get_tenant_id(client["api_key"])
+    active    = db.table("enrolled_devices").select(
+        "id", count="exact"
+    ).eq("tenant_id", tenant_id).eq("is_active", True).execute()
+    revoked   = db.table("enrolled_devices").select(
+        "id", count="exact"
+    ).eq("tenant_id", tenant_id).eq("is_active", False).execute()
+
+    return {
+        "institution":      client["client_name"],
+        "enrolled_devices": active.count  or 0,
+        "revoked_devices":  revoked.count or 0,
     }
 
 
