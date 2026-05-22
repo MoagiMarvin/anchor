@@ -1,5 +1,7 @@
 import os
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from models import (
     SessionCreateRequest, SessionValidateRequest,
@@ -22,7 +24,7 @@ from identity import register_identity, verify_login
 from encryption import AnchorEncryption
 from auth import verify_api_key
 from limiter import check_rate_limit
-from enrollment import router as enrollment_router  # NEW
+from enrollment import router as enrollment_router
 
 app = FastAPI(
     title="Anchor",
@@ -38,7 +40,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(enrollment_router)  # NEW
+app.include_router(enrollment_router)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# ─────────────────────────────────────────
+# DASHBOARD
+# Served directly from Anchor — no frontend needed
+# ─────────────────────────────────────────
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    """Live threat dashboard — open in browser at /dashboard"""
+    with open("static/dashboard.html") as f:
+        return f.read()
+
 
 @app.get("/")
 def root():
@@ -48,7 +64,8 @@ def root():
         "version":      "2.0.0",
         "tagline":      "Identity & Session Protection Platform",
         "quantum_safe": True,
-        "algorithm":    "CRYSTALS-Dilithium ML-DSA-65"
+        "algorithm":    "CRYSTALS-Dilithium ML-DSA-65",
+        "dashboard":    "/dashboard"
     }
 
 
@@ -165,7 +182,7 @@ def session_validate(body: SessionValidateRequest, client=Depends(verify_api_key
         body.token,
         body.ip_address,
         body.user_agent,
-        client["api_key"]  # NEW — needed for enrollment check
+        client["api_key"]  # passed for enrollment check
     )
     return AnchorResponse(
         status  = result["status"],
@@ -405,7 +422,7 @@ def honeypot_session_detail(session_uuid: str, client=Depends(verify_api_key)):
 def dashboard_stats(client=Depends(verify_api_key)):
     """
     Summary numbers for the dashboard header.
-    Antigravity reads from here for the stat cards.
+    Dashboard reads from here for the stat cards.
     """
     from database import get_db
     db = get_db()
