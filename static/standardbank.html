@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Standard Bank — Internal Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sb-blue:    #0033a0;
+    --sb-light:   #f0f4ff;
+    --sb-dark:    #001a5c;
+    --danger:     #cc0000;
+    --ok:         #007a3d;
+    --warn:       #e6820a;
+    --border:     #dde3f0;
+    --text:       #1a1a2e;
+    --muted:      #6b7280;
+    --surface:    #ffffff;
+    --bg:         #f5f7fc;
+
+    /* Anchor overlay */
+    --anchor-bg:     #050810;
+    --anchor-accent: #00e5ff;
+    --anchor-danger: #ff3c5f;
+    --anchor-ok:     #00e676;
+    --anchor-warn:   #ffb800;
+    --anchor-honey:  #ff9800;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Top Bar ── */
+  .topbar {
+    background: var(--sb-blue);
+    color: white;
+    padding: 0 32px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 12px rgba(0,51,160,0.3);
+  }
+
+  .bank-logo { display: flex; align-items: center; gap: 14px; }
+  .bank-logo-icon {
+    width: 40px; height: 40px;
+    background: white;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .bank-logo-text { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  .bank-logo-sub  { font-size: 11px; opacity: 0.7; margin-top: 1px; }
+
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+  .user-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.15);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+  }
+
+  .anchor-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(0,229,255,0.15);
+    border: 1px solid rgba(0,229,255,0.4);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-family: 'Space Mono', monospace;
+    color: #00e5ff;
+  }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: #00e676; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── Layout ── */
+  .layout { display: grid; grid-template-columns: 240px 1fr 360px; height: calc(100vh - 64px); }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--sb-dark);
+    color: white;
+    padding: 24px 0;
+    overflow-y: auto;
+  }
+
+  .sidebar-section { padding: 8px 20px; font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 16px; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 20px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: rgba(255,255,255,0.75);
+  }
+  .nav-item:hover    { background: rgba(255,255,255,0.08); color: white; }
+  .nav-item.active   { background: rgba(0,229,255,0.15); color: #00e5ff; border-right: 3px solid #00e5ff; }
+  .nav-item.danger   { color: #ff6b6b; }
+
+  /* ── Main Content ── */
+  .main { overflow-y: auto; padding: 28px 32px; }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .page-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .page-sub   { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+  /* Cards */
+  .card-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+
+  .card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .card-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .card-value { font-size: 28px; font-weight: 700; }
+  .card-sub   { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Table */
+  .table-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  .table-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 10px 20px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; background: #fafbff; border-bottom: 1px solid var(--border); }
+  td { padding: 12px 20px; font-size: 13px; border-bottom: 1px solid #f0f2f8; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafbff; }
+
+  .status-tag {
+    padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;
+    font-family: 'Space Mono', monospace;
+  }
+  .tag-ok     { background: #e8f5e9; color: var(--ok); }
+  .tag-danger { background: #ffeaea; color: var(--danger); }
+  .tag-warn   { background: #fff8e1; color: var(--warn); }
+
+  /* Buttons */
+  .btn {
+    padding: 9px 20px; border: none; border-radius: 8px;
+    font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn-primary { background: var(--sb-blue); color: white; }
+  .btn-primary:hover { background: var(--sb-dark); }
+  .btn-danger  { background: var(--danger); color: white; }
+  .btn-danger:hover { opacity: 0.85; }
+  .btn-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+
+  /* Login Page */
+  .login-wrap {
+    display: flex; align-items: center; justify-content: center;
+    min-height: calc(100vh - 64px);
+    background: var(--bg);
+  }
+
+  .login-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    width: 400px;
+    box-shadow: 0 8px 32px rgba(0,51,160,0.08);
+  }
+
+  .login-title  { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub    { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
+  .form-input {
+    width: 100%; padding: 10px 14px;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: 'Inter', sans-serif; font-size: 14px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .form-input:focus { border-color: var(--sb-blue); }
+
+  .login-btn {
+    width: 100%; padding: 12px;
+    background: var(--sb-blue); color: white;
+    border: none; border-radius: 8px;
+    font-family: 'Inter', sans-serif; font-weight: 700; font-size: 15px;
+    cursor: pointer; transition: background 0.2s;
+    margin-top: 8px;
+  }
+  .login-btn:hover { background: var(--sb-dark); }
+
+  .anchor-powered {
+    display: flex; align-items: center; gap: 8px; justify-content: center;
+    margin-top: 20px; font-size: 11px; color: var(--muted);
+    font-family: 'Space Mono', monospace;
+  }
+  .anchor-powered span { color: #00e5ff; }
+
+  /* ── Anchor Security Panel (right sidebar) ── */
+  .security-panel {
+    background: var(--anchor-bg);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sp-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #1a2540;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sp-title { font-size: 13px; font-weight: 700; font-family: 'Space Mono', monospace; color: #00e5ff; }
+  .sp-sub   { font-size: 10px; color: #4a5568; font-family: 'Space Mono', monospace; }
+
+  .sp-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .sp-body::-webkit-scrollbar { width: 3px; }
+  .sp-body::-webkit-scrollbar-thumb { background: #1a2540; }
+
+  .sp-section { margin-bottom: 20px; }
+  .sp-section-title {
+    font-size: 10px; color: #4a5568;
+    font-family: 'Space Mono', monospace;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  .check-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #0b1120;
+    font-size: 12px;
+    font-family: 'Space Mono', monospace;
+  }
+  .check-row:last-child { border-bottom: none; }
+
+  .check-icon { font-size: 14px; flex-shrink: 0; }
+  .check-label { flex: 1; color: #a0aec0; }
+  .check-status { font-size: 10px; }
+  .check-status.pass  { color: #00e676; }
+  .check-status.fail  { color: #ff3c5f; }
+  .check-status.warn  { color: #ffb800; }
+  .check-status.idle  { color: #4a5568; }
+
+  .event-feed { max-height: 300px; overflow-y: auto; }
+  .event-feed::-webkit-scrollbar { width: 3px; }
+
+  .feed-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-family: 'Space Mono', monospace;
+    border-left: 3px solid;
+    background: rgba(255,255,255,0.03);
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+
+  .feed-item.ok     { border-color: #00e676; color: #a0f0c0; }
+  .feed-item.threat { border-color: #ff3c5f; color: #ffaaaa; }
+  .feed-item.warn   { border-color: #ffb800; color: #ffe08a; }
+  .feed-item.honey  { border-color: #ff9800; color: #ffd080; }
+
+  .feed-time { font-size: 9px; color: #4a5568; margin-top: 2px; }
+
+  /* Risk meter */
+  .risk-meter { margin-bottom: 16px; }
+  .risk-bar-bg { background: #0b1120; border-radius: 4px; height: 8px; overflow: hidden; }
+  .risk-bar    { height: 100%; border-radius: 4px; transition: width 0.5s, background 0.5s; }
+  .risk-label  { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; font-family: 'Space Mono', monospace; }
+  .risk-value  { font-size: 24px; font-weight: 700; font-family: 'Space Mono', monospace; text-align: center; margin: 10px 0; }
+
+  /* Alert overlay */
+  .alert-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    display: none;
+  }
+  .alert-overlay.show { display: flex; }
+
+  .alert-box {
+    background: #0b1120;
+    border: 2px solid #ff3c5f;
+    border-radius: 16px;
+    padding: 40px;
+    max-width: 500px;
+    text-align: center;
+    animation: alertIn 0.3s ease;
+  }
+  @keyframes alertIn { from{transform:scale(0.8);opacity:0} to{transform:scale(1);opacity:1} }
+
+  .alert-icon  { font-size: 48px; margin-bottom: 16px; }
+  .alert-title { font-size: 22px; font-weight: 700; color: #ff3c5f; margin-bottom: 10px; font-family: 'Space Mono', monospace; }
+  .alert-body  { font-size: 13px; color: #a0aec0; line-height: 1.6; margin-bottom: 24px; font-family: 'Space Mono', monospace; }
+  .alert-close { padding: 10px 28px; background: #ff3c5f; border: none; border-radius: 8px; color: white; font-weight: 700; cursor: pointer; font-size: 14px; }
+
+  /* Scenario selector */
+  .scenario-bar {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .scenario-label { font-size: 12px; font-weight: 700; color: var(--warn); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 200px 1fr 300px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Top Bar ── -->
+<div class="topbar">
+  <div class="bank-logo">
+    <div class="bank-logo-icon">🏦</div>
+    <div>
+      <div class="bank-logo-text">Standard Bank</div>
+      <div class="bank-logo-sub">INTERNAL EMPLOYEE PORTAL</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="anchor-badge"><div class="dot"></div> ANCHOR PROTECTED</div>
+    <div class="user-pill" id="user-pill">🔒 Not logged in</div>
+  </div>
+</div>
+
+<!-- ── Login Screen ── -->
+<div id="login-screen">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-title">Employee Login</div>
+      <div class="login-sub">Standard Bank Internal Portal — Protected by Anchor</div>
+
+      <div class="form-group">
+        <label class="form-label">Employee ID</label>
+        <input class="form-input" id="login-user" value="jsmith_sb001" placeholder="Employee ID">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" type="password" value="••••••••" placeholder="Password">
+      </div>
+      <div class="form-group">
+        <label class="form-label">IP Address (simulated)</label>
+        <input class="form-input" id="login-ip" value="10.0.1.45" placeholder="IP Address">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Scenario</label>
+        <select class="form-input" id="login-scenario">
+          <option value="legit">✅ Legitimate Employee (enrolled device)</option>
+          <option value="rootboy">🚨 Rootboy (stolen credentials, Feb 27 2026)</option>
+        </select>
+      </div>
+
+      <button class="login-btn" onclick="doLogin()">Sign In</button>
+
+      <div class="anchor-powered">
+        ⚓ Session protected by <span>Anchor</span> · CRYSTALS-Dilithium ML-DSA-65
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main App ── -->
+<div id="app-screen" style="display:none">
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-section">Main</div>
+      <div class="nav-item active" onclick="showPage('dashboard')">📊 Dashboard</div>
+      <div class="nav-item" onclick="showPage('records')">👥 Client Records</div>
+      <div class="nav-item" onclick="showPage('database')">🗄️ Database Query</div>
+      <div class="nav-item" onclick="showPage('sharepoint')">📁 SharePoint / Files</div>
+      <div class="nav-item" onclick="showPage('liberty')">🏢 Liberty Systems</div>
+
+      <div class="sidebar-section">Admin</div>
+      <div class="nav-item" onclick="showPage('reports')">📋 POPIA Reports</div>
+
+      <div class="sidebar-section" style="margin-top:auto">Session</div>
+      <div class="nav-item danger" onclick="doLogout()">⏻ Sign Out</div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main">
+
+      <!-- Dashboard Page -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-title">Good morning, <span id="welcome-name">Employee</span></div>
+        <div class="page-sub">Standard Bank Internal Portal · <span id="login-time"></span></div>
+
+        <div id="scenario-warning" class="scenario-bar" style="display:none">
+          <span class="scenario-label">⚠ ROOTBOY SCENARIO ACTIVE</span>
+          <span style="font-size:12px;color:#666">Feb 27, 2026 · Attacker operating with stolen credentials from unenrolled device · Anchor is watching</span>
+        </div>
+
+        <div class="card-row">
+          <div class="card">
+            <div class="card-label">Client Accounts</div>
+            <div class="card-value">2,847</div>
+            <div class="card-sub">Active accounts under management</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Transactions Today</div>
+            <div class="card-value">14,392</div>
+            <div class="card-sub">Processed successfully</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Pending Queries</div>
+            <div class="card-value">7</div>
+            <div class="card-sub">Awaiting review</div>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doAction('view_records', 'Client Records', 100)">View Client Records</button>
+          <button class="btn btn-primary" onclick="showPage('database')">Open Database</button>
+          <button class="btn btn-primary" onclick="showPage('sharepoint')">Browse Files</button>
+        </div>
+
+        <div class="table-card">
+          <div class="table-header">Recent Activity</div>
+          <table>
+            <thead><tr><th>Action</th><th>System</th><th>Time</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Viewed client summary</td><td>CRM</td><td>08:32</td><td><span class="status-tag tag-ok">OK</span></td></tr>
+              <tr><td>Exported monthly report</td><td>Analytics</td><td>08:15</td><td><span class="status-tag tag-ok">OK</span></td></tr>
+              <tr><td>Updated client contact</td><td>CRM</td><td>07:58</td><td><span class="status-tag tag-ok">OK</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Records Page -->
+      <div class="page" id="page-records">
+        <div class="page-title">Client Records</div>
+        <div class="page-sub">CRM System — Customer relationship management</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doAction('view_records', '/api/crm/clients', 500)">View Records (500)</button>
+          <button class="btn btn-primary" onclick="doAction('export_records', '/api/crm/export', 5000)">Export Records (5K)</button>
+          <button class="btn btn-danger" onclick="doAction('bulk_download', '/api/crm/bulk-export', 154000000)">⚠ Bulk Export ALL (154M rows)</button>
+        </div>
+        <div class="table-card">
+          <div class="table-header">Client Records — Sample</div>
+          <table>
+            <thead><tr><th>Name</th><th>ID Number</th><th>Account</th><th>Contact</th></tr></thead>
+            <tbody>
+              <tr><td>Thabo Nkosi</td><td>8901••••••••</td><td>****4521</td><td>+27 82 ••• ••••</td></tr>
+              <tr><td>Sarah van der Berg</td><td>9204••••••••</td><td>****8832</td><td>+27 71 ••• ••••</td></tr>
+              <tr><td>Mohammed Essop</td><td>8712••••••••</td><td>****1190</td><td>+27 83 ••• ••••</td></tr>
+              <tr><td>Nomsa Dlamini</td><td>9507••••••••</td><td>****6643</td><td>+27 79 ••• ••••</td></tr>
+              <tr><td>Pieter Botha</td><td>8803••••••••</td><td>****3317</td><td>+27 82 ••• ••••</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Database Page -->
+      <div class="page" id="page-database">
+        <div class="page-title">Oracle SQL Database</div>
+        <div class="page-sub">Internal database query interface — Standard Bank production DB</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doAction('database_query', '/api/db/query', 1000)">Run Query (1K rows)</button>
+          <button class="btn btn-primary" onclick="doAction('database_query', '/api/db/query', 50000)">Run Query (50K rows)</button>
+          <button class="btn btn-danger" onclick="doAction('database_query', '/api/db/oracle-full', 154000000)">⚠ SELECT * FROM ALL TABLES (154M rows)</button>
+        </div>
+        <div class="table-card">
+          <div class="table-header">Query Interface</div>
+          <table>
+            <thead><tr><th>Table</th><th>Rows</th><th>Last Access</th><th>Classification</th></tr></thead>
+            <tbody>
+              <tr><td>sb_customer_pii</td><td>2,847,221</td><td>Today 08:32</td><td><span class="status-tag tag-danger">CONFIDENTIAL</span></td></tr>
+              <tr><td>sb_transactions</td><td>48,392,114</td><td>Today 08:15</td><td><span class="status-tag tag-danger">CONFIDENTIAL</span></td></tr>
+              <tr><td>sb_credit_cards</td><td>1,204,887</td><td>Yesterday</td><td><span class="status-tag tag-danger">SECRET</span></td></tr>
+              <tr><td>sb_staff_records</td><td>24,103</td><td>3 days ago</td><td><span class="status-tag tag-warn">INTERNAL</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SharePoint Page -->
+      <div class="page" id="page-sharepoint">
+        <div class="page-title">SharePoint / OneDrive</div>
+        <div class="page-sub">Internal file management — Microsoft 365 integration</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doAction('view_records', '/sharepoint/browse', 10)">Browse Files</button>
+          <button class="btn btn-primary" onclick="doAction('export_records', '/sharepoint/download', 100)">Download Selected</button>
+          <button class="btn btn-danger" onclick="doAction('bulk_download', '/sharepoint/bulk-download', 1200000)">⚠ Download All (1.2TB)</button>
+        </div>
+        <div class="table-card">
+          <div class="table-header">Recent Files</div>
+          <table>
+            <thead><tr><th>File</th><th>Location</th><th>Size</th><th>Modified</th></tr></thead>
+            <tbody>
+              <tr><td>Q1_2026_Financial_Report.xlsx</td><td>/Finance/Reports</td><td>2.4 MB</td><td>2026-03-31</td></tr>
+              <tr><td>Customer_Data_Backup.zip</td><td>/IT/Backups</td><td>18.2 GB</td><td>2026-03-28</td></tr>
+              <tr><td>Staff_Salary_Schedule.xlsx</td><td>/HR/Confidential</td><td>1.1 MB</td><td>2026-03-15</td></tr>
+              <tr><td>Board_Meeting_Minutes.docx</td><td>/Executive</td><td>890 KB</td><td>2026-03-10</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Liberty Page -->
+      <div class="page" id="page-liberty">
+        <div class="page-title">Liberty Group Systems</div>
+        <div class="page-sub">Standard Bank subsidiary — Insurance & investment systems</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doAction('admin_access', '/liberty/portal', 50)">Access Liberty Portal</button>
+          <button class="btn btn-danger" onclick="doAction('lateral_movement', '/liberty/internal-db', 5000000)">⚠ Query Liberty DB (lateral move)</button>
+        </div>
+        <div class="table-card">
+          <div class="table-header">Liberty Systems Access</div>
+          <table>
+            <thead><tr><th>System</th><th>Status</th><th>Your Access</th></tr></thead>
+            <tbody>
+              <tr><td>Liberty Life Portal</td><td><span class="status-tag tag-ok">ONLINE</span></td><td>Read Only</td></tr>
+              <tr><td>Liberty Investments DB</td><td><span class="status-tag tag-ok">ONLINE</span></td><td>None</td></tr>
+              <tr><td>Liberty Client Records</td><td><span class="status-tag tag-ok">ONLINE</span></td><td>None</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- POPIA Reports Page -->
+      <div class="page" id="page-reports">
+        <div class="page-title">POPIA Breach Reports</div>
+        <div class="page-sub">Section 22 — Information Regulator notification drafts</div>
+        <div id="popia-content">
+          <div style="color:var(--muted);font-size:13px;padding:20px 0">No breach reports generated yet. Reports auto-generate when Anchor detects a POPIA-relevant threat.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Anchor Security Panel ── -->
+    <div class="security-panel">
+      <div class="sp-header">
+        <div>
+          <div class="sp-title">⚓ ANCHOR SECURITY</div>
+          <div class="sp-sub">REAL-TIME SESSION MONITOR</div>
+        </div>
+      </div>
+
+      <div class="sp-body">
+
+        <!-- Session Info -->
+        <div class="sp-section">
+          <div class="sp-section-title">Current Session</div>
+          <div style="font-family:'Space Mono',monospace;font-size:11px;color:#4a5568">
+            <div style="margin-bottom:6px">USER: <span id="sp-user" style="color:#a0aec0">—</span></div>
+            <div style="margin-bottom:6px">IP: <span id="sp-ip" style="color:#a0aec0">—</span></div>
+            <div style="margin-bottom:6px">DEVICE: <span id="sp-device" style="color:#a0aec0">—</span></div>
+            <div>TOKEN: <span id="sp-token" style="color:#00e5ff;word-break:break-all;font-size:9px">—</span></div>
+          </div>
+        </div>
+
+        <!-- 4 Checks -->
+        <div class="sp-section">
+          <div class="sp-section-title">Validation Checks</div>
+          <div class="check-row">
+            <div class="check-icon">🔐</div>
+            <div class="check-label">Dilithium Signature</div>
+            <div class="check-status idle" id="check-1">IDLE</div>
+          </div>
+          <div class="check-row">
+            <div class="check-icon">🗄️</div>
+            <div class="check-label">Supabase Session</div>
+            <div class="check-status idle" id="check-2">IDLE</div>
+          </div>
+          <div class="check-row">
+            <div class="check-icon">👆</div>
+            <div class="check-label">Device Fingerprint</div>
+            <div class="check-status idle" id="check-3">IDLE</div>
+          </div>
+          <div class="check-row">
+            <div class="check-icon">🖥️</div>
+            <div class="check-label">Enrolled Hardware</div>
+            <div class="check-status idle" id="check-4">IDLE</div>
+          </div>
+        </div>
+
+        <!-- Risk Score -->
+        <div class="sp-section">
+          <div class="sp-section-title">Session Risk Score</div>
+          <div class="risk-meter">
+            <div class="risk-label">
+              <span style="color:#4a5568">LOW</span>
+              <span style="color:#4a5568">CRITICAL</span>
+            </div>
+            <div class="risk-bar-bg">
+              <div class="risk-bar" id="risk-bar" style="width:0%;background:#00e676"></div>
+            </div>
+          </div>
+          <div class="risk-value" id="risk-value" style="color:#00e676">0</div>
+        </div>
+
+        <!-- Live Feed -->
+        <div class="sp-section">
+          <div class="sp-section-title">Live Event Feed</div>
+          <div class="event-feed" id="event-feed">
+            <div style="font-family:'Space Mono',monospace;font-size:11px;color:#4a5568;text-align:center;padding:20px">
+              Waiting for session...
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Alert Overlay -->
+<div class="alert-overlay" id="alert-overlay">
+  <div class="alert-box">
+    <div class="alert-icon" id="alert-icon">🚨</div>
+    <div class="alert-title" id="alert-title">THREAT DETECTED</div>
+    <div class="alert-body" id="alert-body">Session terminated by Anchor.</div>
+    <button class="alert-close" onclick="closeAlert()">ACKNOWLEDGE</button>
+  </div>
+</div>
+
+<script>
+  const ANCHOR_BASE = "http://localhost:8000";
+  const API_KEY     = "anchor-standardbank-2026-demo-key";
+  const ADMIN_ID    = "admin@standardbank.co.za";
+
+  const HEADERS = {
+    "Content-Type": "application/json",
+    "X-API-Key":    API_KEY,
+    "X-Admin-ID":   ADMIN_ID
+  };
+
+  // State
+  let currentToken    = null;
+  let currentUser     = null;
+  let currentIp       = null;
+  let currentScenario = null;
+  let isRootboy       = false;
+  let sessionKilled   = false;
+
+  // Enrolled legitimate device fingerprint
+  // (will be auto-enrolled on legitimate login)
+  const LEGIT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Standard Bank Internal";
+  const ROOTBOY_UA = "Mozilla/5.0 (Linux; x86_64) RootboyAttacker/1.0";
+
+  function now() {
+    return new Date().toLocaleTimeString('en-ZA', { hour12: false });
+  }
+
+  function addFeedItem(msg, type='ok') {
+    const feed = document.getElementById('event-feed');
+    const el = document.createElement('div');
+    el.className = `feed-item ${type}`;
+    el.innerHTML = `${msg}<div class="feed-time">${now()}</div>`;
+    feed.insertBefore(el, feed.firstChild);
+    // Keep max 20 items
+    while (feed.children.length > 20) feed.removeChild(feed.lastChild);
+  }
+
+  function setCheck(num, status, text) {
+    const el = document.getElementById(`check-${num}`);
+    el.className = `check-status ${status}`;
+    el.textContent = text;
+  }
+
+  function setRisk(score) {
+    const bar = document.getElementById('risk-bar');
+    const val = document.getElementById('risk-value');
+    bar.style.width = `${score}%`;
+    val.textContent = score;
+    if (score >= 80) {
+      bar.style.background = '#ff3c5f';
+      val.style.color = '#ff3c5f';
+    } else if (score >= 50) {
+      bar.style.background = '#ffb800';
+      val.style.color = '#ffb800';
+    } else {
+      bar.style.background = '#00e676';
+      val.style.color = '#00e676';
+    }
+  }
+
+  function showAlert(icon, title, body) {
+    document.getElementById('alert-icon').textContent  = icon;
+    document.getElementById('alert-title').textContent = title;
+    document.getElementById('alert-body').textContent  = body;
+    document.getElementById('alert-overlay').classList.add('show');
+  }
+
+  function closeAlert() {
+    document.getElementById('alert-overlay').classList.remove('show');
+    if (sessionKilled) {
+      sessionKilled = false;
+      doLogout();
+    }
+  }
+
+  function showPage(name) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById(`page-${name}`).classList.add('active');
+
+    // Trigger session event for navigation
+    if (currentToken && name !== 'dashboard') {
+      doAction(`view_${name}`, `/internal/${name}`, 10, false);
+    }
+  }
+
+  // ── LOGIN ──
+  async function doLogin() {
+    const userId   = document.getElementById('login-user').value.trim();
+    const ip       = document.getElementById('login-ip').value.trim();
+    const scenario = document.getElementById('login-scenario').value;
+
+    isRootboy = scenario === 'rootboy';
+    const ua  = isRootboy ? ROOTBOY_UA : LEGIT_UA;
+
+    addFeedItem(`Login attempt: ${userId}`, 'ok');
+
+    try {
+      // Step 1: If legitimate, self-enroll device first
+      if (!isRootboy) {
+        addFeedItem('Enrolling device in SB registry...', 'ok');
+        await fetch(`${ANCHOR_BASE}/enroll/device/self-enroll`, {
+          method: 'POST',
+          headers: HEADERS,
+          body: JSON.stringify({ employee_id: userId, ip_address: ip, user_agent: ua })
+        });
+        addFeedItem('✅ Device enrolled — hardware verified', 'ok');
+      } else {
+        addFeedItem('⚠ Rootboy using stolen credentials...', 'warn');
+        addFeedItem('⚠ Device NOT enrolled in SB registry', 'warn');
+      }
+
+      // Step 2: Create session
+      const r = await fetch(`${ANCHOR_BASE}/session/create`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({ user_id: userId, ip_address: ip, user_agent: ua })
+      });
+      const d = await r.json();
+      currentToken    = d.token;
+      currentUser     = userId;
+      currentIp       = ip;
+      currentScenario = scenario;
+
+      // Update UI
+      document.getElementById('login-screen').style.display  = 'none';
+      document.getElementById('app-screen').style.display    = 'block';
+      document.getElementById('welcome-name').textContent     = isRootboy ? 'J. Smith (COMPROMISED)' : 'John Smith';
+      document.getElementById('login-time').textContent       = `Session started ${now()}`;
+      document.getElementById('user-pill').textContent        = `👤 ${userId}`;
+      document.getElementById('sp-user').textContent          = userId;
+      document.getElementById('sp-ip').textContent            = ip;
+      document.getElementById('sp-device').textContent        = isRootboy ? '❌ UNENROLLED' : '✅ ENROLLED';
+      document.getElementById('sp-token').textContent         = currentToken ? currentToken.slice(0, 30) + '...' : '—';
+
+      if (isRootboy) {
+        document.getElementById('scenario-warning').style.display = 'flex';
+        addFeedItem('🚨 ROOTBOY SESSION ACTIVE — Feb 27 2026', 'threat');
+      } else {
+        addFeedItem('✅ Legitimate session created', 'ok');
+      }
+
+      // Validate immediately to show checks
+      await validateSession();
+
+    } catch(e) {
+      addFeedItem('❌ Could not reach Anchor API', 'threat');
+    }
+  }
+
+  // ── VALIDATE SESSION ──
+  async function validateSession() {
+    if (!currentToken) return;
+
+    const ua = isRootboy ? ROOTBOY_UA : LEGIT_UA;
+
+    setCheck(1, 'idle', 'CHECKING...');
+    setCheck(2, 'idle', 'CHECKING...');
+    setCheck(3, 'idle', 'CHECKING...');
+    setCheck(4, 'idle', 'CHECKING...');
+
+    try {
+      const r = await fetch(`${ANCHOR_BASE}/session/validate`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({
+          token:      currentToken,
+          ip_address: currentIp,
+          user_agent: ua
+        })
+      });
+      const d = await r.json();
+      const risk = d.risk?.score ?? 0;
+
+      setRisk(risk);
+
+      if (d.status === 'ok') {
+        setCheck(1, 'pass', 'PASS ✓');
+        setCheck(2, 'pass', 'PASS ✓');
+        setCheck(3, 'pass', 'PASS ✓');
+        setCheck(4, 'pass', 'PASS ✓');
+        addFeedItem('✅ Session validated — all 4 checks passed', 'ok');
+      } else if (d.status === 'warning') {
+        setCheck(1, 'pass', 'PASS ✓');
+        setCheck(2, 'pass', 'PASS ✓');
+        setCheck(3, 'pass', 'PASS ✓');
+        setCheck(4, 'fail', 'FAIL ✗');
+        addFeedItem('🍯 CHECK 4 FAILED — unenrolled device → HONEYPOT', 'honey');
+        setRisk(80);
+        showAlert('🍯', 'HONEYPOT ACTIVATED',
+          'Device not in Standard Bank institutional registry.\n\nAttacker (Rootboy) has been silently routed to a honeypot environment. They believe they are inside the system. Every action is now being logged for forensic intelligence.\n\nAnchor stopped this on Day 1.');
+      } else if (d.status === 'threat') {
+        setCheck(1, 'fail', 'FAIL ✗');
+        setCheck(2, 'fail', 'FAIL ✗');
+        setCheck(3, 'fail', 'FAIL ✗');
+        setCheck(4, 'fail', 'FAIL ✗');
+        addFeedItem('🚨 THREAT — session killed', 'threat');
+        setRisk(100);
+      }
+
+      return d.status;
+
+    } catch(e) {
+      addFeedItem('❌ Validation error — API unreachable', 'threat');
+    }
+  }
+
+  // ── SESSION EVENT (action monitoring) ──
+  async function doAction(action, endpoint, dataVolume, showResult=true) {
+    if (!currentToken) return;
+
+    const ua = isRootboy ? ROOTBOY_UA : LEGIT_UA;
+    addFeedItem(`→ Action: ${action} (${dataVolume.toLocaleString()} rows)`, 'ok');
+
+    try {
+      const r = await fetch(`${ANCHOR_BASE}/session/event`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({
+          token:       currentToken,
+          action:      action,
+          endpoint:    endpoint,
+          data_volume: dataVolume,
+          ip_address:  currentIp,
+          user_agent:  ua
+        })
+      });
+      const d = await r.json();
+
+      const risk = d.risk?.score ?? d.risk_score ?? 0;
+      if (risk > 0) setRisk(risk);
+
+      if (!showResult) return;
+
+      if (d.status === 'threat' || d.action_required === 'kill') {
+        addFeedItem(`🚨 AI AGENT: Session KILLED — ${d.attack_pattern || action}`, 'threat');
+        setRisk(100);
+        setCheck(1, 'fail', 'KILLED');
+        setCheck(2, 'fail', 'KILLED');
+        setCheck(3, 'fail', 'KILLED');
+        setCheck(4, 'fail', 'KILLED');
+        sessionKilled = true;
+        showAlert('🚨', 'SESSION TERMINATED BY ANCHOR',
+          `AI anomaly agent detected: ${d.attack_pattern || action}\n\nData volume: ${dataVolume.toLocaleString()} rows — exceeds all normal thresholds.\n\nThis is exactly what Rootboy did on Feb 27, 2026. Standard Bank had no Anchor. The result: 1.2TB stolen, 154 million records exfiltrated over 3 weeks.\n\nWith Anchor: stopped here.`);
+
+        // Check for POPIA report
+        if (d.popia_concern) {
+          document.getElementById('popia-content').innerHTML = `
+            <div class="table-card">
+              <div class="table-header" style="color:var(--danger)">🚨 Auto-Generated POPIA Report — Section 22</div>
+              <div style="padding:20px;font-size:13px;line-height:1.8">
+                <strong>Incident Date:</strong> ${new Date().toLocaleDateString('en-ZA')}<br>
+                <strong>Nature of Breach:</strong> Unauthorised bulk data access attempt<br>
+                <strong>Records Potentially Affected:</strong> ${dataVolume.toLocaleString()}<br>
+                <strong>Action Taken:</strong> Session terminated by Anchor AI agent<br>
+                <strong>Status:</strong> <span class="status-tag tag-warn">DRAFT — Pending review for Information Regulator</span>
+              </div>
+            </div>`;
+        }
+
+      } else if (d.status === 'warning') {
+        addFeedItem(`⚠ AI AGENT: Warning — ${d.explanation || 'suspicious activity'}`, 'warn');
+        if (risk > 0) setRisk(risk);
+      } else {
+        addFeedItem(`✅ Action logged: ${action}`, 'ok');
+      }
+
+    } catch(e) {
+      addFeedItem('❌ Event logging failed', 'threat');
+    }
+  }
+
+  // ── LOGOUT ──
+  async function doLogout() {
+    if (currentToken) {
+      try {
+        await fetch(`${ANCHOR_BASE}/session/kill`, {
+          method: 'POST', headers: HEADERS,
+          body: JSON.stringify({ token: currentToken })
+        });
+      } catch {}
+    }
+    currentToken = null;
+    currentUser  = null;
+    isRootboy    = false;
+    sessionKilled = false;
+
+    // Reset checks
+    [1,2,3,4].forEach(n => setCheck(n, 'idle', 'IDLE'));
+    setRisk(0);
+    document.getElementById('event-feed').innerHTML =
+      '<div style="font-family:\'Space Mono\',monospace;font-size:11px;color:#4a5568;text-align:center;padding:20px">Waiting for session...</div>';
+    document.getElementById('sp-user').textContent  = '—';
+    document.getElementById('sp-ip').textContent    = '—';
+    document.getElementById('sp-device').textContent = '—';
+    document.getElementById('sp-token').textContent  = '—';
+    document.getElementById('scenario-warning').style.display = 'none';
+    document.getElementById('user-pill').textContent = '🔒 Not logged in';
+
+    document.getElementById('app-screen').style.display  = 'none';
+    document.getElementById('login-screen').style.display = 'block';
+  }
+
+  // Set login time
+  document.getElementById('login-time') &&
+    (document.getElementById('login-time').textContent = now());
+</script>
+</body>
+</html>

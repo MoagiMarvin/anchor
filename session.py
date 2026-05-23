@@ -57,7 +57,8 @@ def validate_session(
     token:      str,
     ip_address: str,
     user_agent: str,
-    api_key:    str = ""   # NEW — passed from main.py for enrollment check
+    api_key:    str = "",
+    client_id:  str = None   # FIX: now received and passed to threat logger
 ) -> dict:
     from pqc import AnchorPQC
     db  = get_db()
@@ -108,7 +109,12 @@ def validate_session(
 
     if not fp_match:
         kill_session(token)
-        log_threat(session["session_uuid"], "fingerprint_mismatch_pqc", ip_address)
+        log_threat(
+            session["session_uuid"],
+            "fingerprint_mismatch_pqc",
+            ip_address,
+            client_id   # FIX: tag threat with correct client
+        )
         return {
             "status":  "threat",
             "message": "Session hijack detected — session terminated",
@@ -116,14 +122,11 @@ def validate_session(
         }
 
     # CHECK 4 — Enrolled device registry
-    # Only runs if institution has enrolled devices.
-    # If no devices enrolled yet, we pass through (opt-in per tenant).
     if api_key:
         from enrollment import is_device_enrolled, get_tenant_id
         tenant_id  = get_tenant_id(api_key)
         current_fp = build_fingerprint(ip_address, user_agent)
 
-        # Check if tenant has ANY enrolled devices first
         enrolled_count = db.table("enrolled_devices") \
             .select("id", count="exact") \
             .eq("tenant_id", tenant_id) \
@@ -131,22 +134,20 @@ def validate_session(
             .execute()
 
         if enrolled_count.count and enrolled_count.count > 0:
-            # Tenant has an enrolled device registry — enforce it
             if not is_device_enrolled(tenant_id, current_fp):
                 log_threat(
                     session["session_uuid"],
                     "unenrolled_device_attempt",
-                    ip_address
+                    ip_address,
+                    client_id   # FIX: tag threat with correct client
                 )
-                # Route to honeypot silently — attacker thinks they're through
-                from honeypot import create_honeypot_session
                 db.table("anchor_sessions") \
                     .update({"is_honeypot": True}) \
                     .eq("session_uuid", session["session_uuid"]) \
                     .execute()
                 return {
                     "status":  "warning",
-                    "message": "Session verified",   # attacker sees nothing suspicious
+                    "message": "Session verified",
                     "risk":    {
                         "score":   80,
                         "level":   "high",

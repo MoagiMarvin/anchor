@@ -5,7 +5,7 @@ from collections import defaultdict
 # Tracks requests per API key per minute
 request_counts = defaultdict(list)
 
-MAX_REQUESTS_PER_MINUTE = 60
+MAX_REQUESTS_PER_MINUTE = 10
 
 def check_rate_limit(api_key: str):
     """

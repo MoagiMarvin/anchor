@@ -11,11 +11,6 @@ from ml.anomaly_detector import get_detector
 # Detection:   Isolation Forest (scikit-learn) — free, local, no API
 # Explanation: Gemini API — only fires on genuinely anomalous events
 #
-# Old flow:  Gemini called on almost every event → burns credits fast
-# New flow:  sklearn scores every event locally →
-#            Gemini only called when anomaly score ≥ 0.6
-#            Saves ~90% of API calls
-#
 # Risk escalation:
 #   0–39   → none    (monitor quietly)
 #   40–59  → warn    (log, alert admin)
@@ -26,51 +21,50 @@ from ml.anomaly_detector import get_detector
 GEMINI_MODEL   = "gemini-2.5-flash"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
-# Only call Gemini when anomaly score crosses this threshold
-# Below this: return ML verdict silently, zero API cost
-GEMINI_THRESHOLD = 0.6
+GEMINI_THRESHOLD = 0.3
 
 
 def run_anomaly_agent(
     session_uuid: str,
-    user_id: str,
-    action: str,
-    endpoint: str,
-    data_volume: int,
-    ip_address: str,
-    client_id: str = None
+    user_id:      str,
+    action:       str,
+    endpoint:     str,
+    data_volume:  int,
+    ip_address:   str,
+    client_id:    str = None,
+    user_agent:   str = None
 ) -> dict:
-    """
-    Main entry point — called from session_events.py after every event.
-
-    Flow:
-        1. Pull session context from Supabase
-        2. Run Isolation Forest locally — no API cost
-        3. If clearly normal → return immediately
-        4. If anomalous → call Claude for explanation
-        5. Store verdict, return result
-
-    Returns:
-        cumulative_risk:    int 0–100
-        risk_contribution:  int — what this event added
-        action_required:    none / warn / reauth / kill
-        explanation:        plain English assessment
-        attack_pattern:     named pattern or 'none'
-        recommended_action: what admin should do
-        popia_concern:      bool
-        confidence:         low / medium / high
-    """
     db = get_db()
 
     # ── Pull context ─────────────────────────────────────────
     recent_events      = _get_recent_events(db, session_uuid)
-    cumulative_risk    = _get_cumulative_risk(db, session_uuid)
+    cumulative_risk    = _get_cumulative_risk(db, session_uuid)   # FIX: reads risk_score correctly
     events_last_minute = _count_recent_events(recent_events, seconds=60)
     user_baseline      = _get_user_baseline(db, user_id)
     institution        = _get_institution(db, client_id)
 
+    # ── IP/UA hijack detection ───────────────────────────────
+    # Compare current request against session's registered values
+    hijack_bonus = _check_hijack(db, session_uuid, ip_address, user_agent)
+    if hijack_bonus > 0:
+        new_cumulative = min(cumulative_risk + hijack_bonus, 100)
+        verdict = {
+            "cumulative_risk":    new_cumulative,
+            "risk_contribution":  hijack_bonus,
+            "action_required":    _escalate(new_cumulative),
+            "explanation":        f"Session hijack detected — IP or device changed mid-session. Original session fingerprint does not match current request.",
+            "attack_pattern":     "session hijacking",
+            "recommended_action": "Kill session immediately and notify the account holder.",
+            "popia_concern":      True,
+            "confidence":         "high",
+            "ml_score":           1.0
+        }
+        _store_verdict(db, session_uuid, user_id, new_cumulative, verdict, client_id)
+        _log_threat_internal(session_uuid, "session_hijack_detected", ip_address, client_id)
+        return verdict
+
     # ── Isolation Forest scoring ─────────────────────────────
-    detector = get_detector()
+    detector  = get_detector()
     ml_result = detector.score(
         action             = action,
         endpoint           = endpoint,
@@ -79,8 +73,8 @@ def run_anomaly_agent(
         cumulative_risk    = cumulative_risk
     )
 
-    anomaly_score = ml_result["anomaly_score"]
-    risk_added    = ml_result["risk_added"]
+    anomaly_score  = ml_result["anomaly_score"]
+    risk_added     = ml_result["risk_added"]
     new_cumulative = min(cumulative_risk + risk_added, 100)
 
     # ── Clearly normal — return without API call ─────────────
@@ -96,7 +90,7 @@ def run_anomaly_agent(
             "confidence":         ml_result["confidence"],
             "ml_score":           anomaly_score
         }
-        _store_verdict(db, session_uuid, user_id, new_cumulative, verdict)
+        _store_verdict(db, session_uuid, user_id, new_cumulative, verdict, client_id)
         return verdict
 
     # ── Anomalous — call Gemini for explanation ──────────────
@@ -115,9 +109,8 @@ def run_anomaly_agent(
         ml_risk_added   = risk_added
     )
 
-    # Merge ML risk with Gemini's refined assessment
-    final_risk_added  = max(risk_added, gemini_verdict.get("risk_contribution", risk_added))
-    final_cumulative  = min(cumulative_risk + final_risk_added, 100)
+    final_risk_added = max(risk_added, gemini_verdict.get("risk_contribution", risk_added))
+    final_cumulative = min(cumulative_risk + final_risk_added, 100)
 
     verdict = {
         "cumulative_risk":    final_cumulative,
@@ -131,11 +124,10 @@ def run_anomaly_agent(
         "ml_score":           anomaly_score
     }
 
-    _store_verdict(db, session_uuid, user_id, final_cumulative, verdict)
+    _store_verdict(db, session_uuid, user_id, final_cumulative, verdict, client_id)
 
-    # ── Auto-trigger POPIA agent if breach threshold crossed ─
+    # ── Auto-trigger POPIA if breach threshold crossed ───────
     try:
-        # pyrefly: ignore [missing-import]
         from popia import check_and_generate_popia_report
         check_and_generate_popia_report(
             session_uuid = session_uuid,
@@ -145,12 +137,55 @@ def run_anomaly_agent(
     except Exception as e:
         print(f"[Anchor/POPIA] Auto-trigger failed: {e}")
 
+    # ── Log as threat if action is kill/reauth ────────────────
+    if verdict["action_required"] in ("kill", "reauth"):
+        _log_threat_internal(
+            session_uuid,
+            f"anomaly:{verdict.get('attack_pattern', 'unknown')}",
+            ip_address,
+            client_id
+        )
+
     return verdict
 
 
 # ─────────────────────────────────────────
+# HIJACK DETECTION
+# ─────────────────────────────────────────
+
+def _check_hijack(db, session_uuid: str, current_ip: str, current_ua: str) -> int:
+    """
+    Compares current IP/UA against what was registered at session creation.
+    Returns risk bonus if mismatch detected, 0 if clean.
+    """
+    if not current_ip and not current_ua:
+        return 0
+    try:
+        result = db.table("anchor_sessions") \
+            .select("ip_address, user_agent") \
+            .eq("session_uuid", session_uuid) \
+            .limit(1) \
+            .execute()
+        if not result.data:
+            return 0
+        session      = result.data[0]
+        original_ip  = session.get("ip_address")
+        original_ua  = session.get("user_agent")
+        ip_changed   = current_ip and original_ip and current_ip != original_ip
+        ua_changed   = current_ua and original_ua and current_ua != original_ua
+        if ip_changed and ua_changed:
+            return 80   # both changed — very high confidence hijack
+        if ip_changed:
+            return 50   # IP changed — suspicious
+        if ua_changed:
+            return 30   # UA changed — moderate suspicion
+    except Exception:
+        pass
+    return 0
+
+
+# ─────────────────────────────────────────
 # GEMINI EXPLANATION LAYER
-# Only called when Isolation Forest flags an anomaly
 # ─────────────────────────────────────────
 
 def _call_gemini(
@@ -158,11 +193,6 @@ def _call_gemini(
     ip_address, recent_events, user_baseline, cumulative_risk,
     institution, ml_score, ml_risk_added
 ) -> dict:
-    """
-    Gemini explains what the ML model flagged.
-    Returns structured threat assessment.
-    Falls back to rule engine if unavailable.
-    """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return _rule_fallback(action, endpoint, data_volume, cumulative_risk)
@@ -226,7 +256,7 @@ Respond ONLY with valid JSON. No preamble. No markdown. Raw JSON only.
 {
   "risk_contribution": <integer 0-50>,
   "explanation": "<Plain English. What is this user doing and why is it concerning. Be specific.>",
-  "attack_pattern": "<data exfiltration | insider threat | session hijacking | privilege escalation probing | reconnaissance | credential stuffing aftermath | novel pattern | none>",
+  "attack_pattern": "<data exfiltration | insider threat | session hijacking | privilege escalation | reconnaissance | credential stuffing aftermath | novel pattern | none>",
   "recommended_action": "<One sentence — what the admin should do right now>",
   "popia_concern": <true|false>,
   "confidence": "<low|medium|high>"
@@ -238,7 +268,6 @@ def _build_prompt(
     ip_address, recent_events, user_baseline, cumulative_risk,
     institution, ml_score, ml_risk_added
 ) -> str:
-
     return f"""The Anchor ML model flagged this session event as anomalous.
 Anomaly score: {ml_score:.2f}/1.0 (threshold: {GEMINI_THRESHOLD})
 ML estimated risk contribution: {ml_risk_added}
@@ -280,7 +309,6 @@ def _format_baseline(baseline: dict) -> str:
 def _format_timeline(events: list) -> str:
     if not events:
         return "  No prior events this session."
-
     lines = []
     for e in sorted(events, key=lambda x: x.get("created_at", ""))[-20:]:
         ts      = e.get("created_at", "")[:19].replace("T", " ")
@@ -298,8 +326,6 @@ def _format_timeline(events: list) -> str:
 
 # ─────────────────────────────────────────
 # RULE FALLBACK
-# Used when Claude is unavailable
-# Anchor stays functional without AI
 # ─────────────────────────────────────────
 
 def _rule_fallback(action, endpoint, data_volume, cumulative_risk) -> dict:
@@ -330,7 +356,7 @@ def _rule_fallback(action, endpoint, data_volume, cumulative_risk) -> dict:
 
     return {
         "risk_contribution":  score,
-        "explanation":        f"[Rule fallback — Gemini unavailable] {'; '.join(reasons)}",
+        "explanation":        f"[Rule fallback] {'; '.join(reasons) or 'No specific rule matched'}",
         "attack_pattern":     "none",
         "recommended_action": "Review session manually",
         "popia_concern":      score >= 20,
@@ -369,13 +395,20 @@ def _parse_verdict(raw_text: str) -> dict:
 
 
 def _get_cumulative_risk(db, session_uuid: str) -> int:
+    """
+    FIX: reads the latest risk_score from anchor_session_events.
+    The old version summed risk_contribution which was always 0
+    because session_events.py updates risk_score, not risk_contribution.
+    """
     result = db.table("anchor_session_events") \
-        .select("risk_contribution") \
+        .select("risk_score") \
         .eq("session_uuid", session_uuid) \
+        .order("created_at", desc=True) \
+        .limit(1) \
         .execute()
     if not result.data:
         return 0
-    return min(sum(e.get("risk_contribution", 0) for e in result.data), 100)
+    return result.data[0].get("risk_score", 0) or 0
 
 
 def _get_recent_events(db, session_uuid: str) -> list:
@@ -389,7 +422,7 @@ def _get_recent_events(db, session_uuid: str) -> list:
 
 
 def _count_recent_events(events: list, seconds: int = 60) -> int:
-    now = datetime.now(timezone.utc)
+    now   = datetime.now(timezone.utc)
     count = 0
     for e in events:
         try:
@@ -465,7 +498,8 @@ def _get_institution(db, client_id: str) -> str:
     return None
 
 
-def _store_verdict(db, session_uuid: str, user_id: str, risk: int, verdict: dict):
+def _store_verdict(db, session_uuid: str, user_id: str, risk: int, verdict: dict, client_id: str = None):
+    """FIX: now writes client_id so dashboard filter finds these rows."""
     try:
         def _level(s):
             if s >= 80: return "critical"
@@ -476,6 +510,8 @@ def _store_verdict(db, session_uuid: str, user_id: str, risk: int, verdict: dict
         db.table("anchor_ai_analyses").insert({
             "session_uuid":       session_uuid,
             "user_id":            user_id,
+            "client_id":          client_id,
+            "cumulative_risk":    risk,
             "risk_score":         risk,
             "threat_level":       _level(risk),
             "explanation":        verdict.get("explanation", ""),
@@ -486,5 +522,14 @@ def _store_verdict(db, session_uuid: str, user_id: str, risk: int, verdict: dict
             "ml_score":           verdict.get("ml_score", 0),
             "created_at":         datetime.now(timezone.utc).isoformat()
         }).execute()
+    except Exception as e:
+        print(f"[Anchor/Anomaly] Store verdict failed: {e}")
+
+
+def _log_threat_internal(session_uuid: str, threat_type: str, ip_address: str, client_id: str = None):
+    """Internal threat logger — calls watcher with client_id."""
+    try:
+        from watcher import log_threat
+        log_threat(session_uuid, threat_type, ip_address, client_id)
     except Exception:
         pass

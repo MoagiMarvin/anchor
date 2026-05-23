@@ -46,12 +46,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ─────────────────────────────────────────
 # DASHBOARD
-# Served directly from Anchor — no frontend needed
 # ─────────────────────────────────────────
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
-    """Live threat dashboard — open in browser at /dashboard"""
     with open("static/dashboard.html") as f:
         return f.read()
 
@@ -71,7 +69,6 @@ def root():
 
 # ─────────────────────────────────────────
 # IDENTITY ENDPOINTS
-# Primary defence — runs at signup and login
 # ─────────────────────────────────────────
 
 @app.post("/identity/register", response_model=AnchorResponse)
@@ -115,10 +112,6 @@ def identity_verify_login(body: IdentityVerifyLoginRequest, client=Depends(verif
         ip_address           = body.ip_address
     )
 
-    # ── Honeypot trigger ─────────────────────────────────────
-    # Risk >= 75 but not a hard block?
-    # Don't block — contain silently inside a honeypot session.
-    # Attacker sees "Login successful" and thinks they're in.
     risk_score = result.get("risk", {}).get("score", 0) if "risk" in result else 0
 
     if risk_score >= 75 and result.get("status") != "threat":
@@ -126,14 +119,14 @@ def identity_verify_login(body: IdentityVerifyLoginRequest, client=Depends(verif
         honeypot_token = create_honeypot_session(
             user_id    = body.user_id,
             ip_address = body.ip_address,
-            user_agent = getattr(body, "user_agent", "unknown")
+            user_agent = getattr(body, "user_agent", "unknown"),
+            client_id  = client["id"]   # FIX: tag honeypot rows with the right client
         )
         return AnchorResponse(
             status  = "ok",
             message = "Login successful",
             token   = honeypot_token
         )
-    # ── End honeypot trigger ─────────────────────────────────
 
     return AnchorResponse(
         status  = result["status"],
@@ -146,17 +139,10 @@ def identity_verify_login(body: IdentityVerifyLoginRequest, client=Depends(verif
 
 # ─────────────────────────────────────────
 # SESSION ENDPOINTS
-# Merged PQC + Supabase tokens
 # ─────────────────────────────────────────
 
 @app.post("/session/create", response_model=AnchorResponse)
 def session_create(body: SessionCreateRequest, client=Depends(verify_api_key)):
-    """
-    Creates a quantum-safe session token.
-    Returns a CRYSTALS-Dilithium signed token (ML-DSA-65).
-    Also logs to Supabase so the Watcher can monitor it.
-    The client stores this token and sends it on every request.
-    """
     if not check_rate_limit(client["api_key"]):
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
     token = create_session(body.user_id, body.ip_address, body.user_agent)
@@ -169,20 +155,14 @@ def session_create(body: SessionCreateRequest, client=Depends(verify_api_key)):
 
 @app.post("/session/validate", response_model=AnchorResponse)
 def session_validate(body: SessionValidateRequest, client=Depends(verify_api_key)):
-    """
-    Four-layer validation:
-    1. Dilithium signature verification (quantum safe)
-    2. Supabase session check (watcher monitoring)
-    3. Device fingerprint check (hijack detection)
-    4. Enrolled device check (institutional hardware registry)
-    """
     if not check_rate_limit(client["api_key"]):
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
     result = validate_session(
         body.token,
         body.ip_address,
         body.user_agent,
-        client["api_key"]  # passed for enrollment check
+        client["api_key"],
+        client["id"]
     )
     return AnchorResponse(
         status  = result["status"],
@@ -214,32 +194,10 @@ def session_kill(body: SessionKillRequest, client=Depends(verify_api_key)):
 
 # ─────────────────────────────────────────
 # BEHAVIOURAL MONITORING ENDPOINTS
-# Post-login session surveillance
-# Watches what users do — not just who they are
 # ─────────────────────────────────────────
 
 @app.post("/session/event", response_model=AnchorResponse)
 def session_event(body: SessionEventRequest, client=Depends(verify_api_key)):
-    """
-    Called by the institution's app every time a user does
-    something meaningful after login.
-
-    Examples:
-      - "view_records"
-      - "export_records"
-      - "admin_access"
-      - "database_query"
-      - "bulk_download"
-      - "delete_records"
-
-    Anchor's AI agent analyses the full session timeline and returns:
-      ok      → normal activity, keep going
-      warning → suspicious, monitoring escalated
-      threat  → session killed or re-auth required
-
-    Honeypot sessions: attacker always gets "ok" back.
-    Their actions are silently logged for intelligence.
-    """
     if not check_rate_limit(client["api_key"]):
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
@@ -271,19 +229,18 @@ def session_event(body: SessionEventRequest, client=Depends(verify_api_key)):
 
 @app.get("/session/{session_uuid}/events")
 def session_event_history(session_uuid: str, client=Depends(verify_api_key)):
-    """Full event timeline for a session — dashboard drill-down."""
     events = get_session_events(session_uuid)
     return {"session_uuid": session_uuid, "events": events, "count": len(events)}
 
 
 @app.get("/session/{session_uuid}/analysis")
 def session_analysis(session_uuid: str, client=Depends(verify_api_key)):
-    """Latest AI agent verdict for a specific session."""
     from database import get_db
     db     = get_db()
     result = db.table("anchor_ai_analyses") \
         .select("*") \
         .eq("session_uuid", session_uuid) \
+        .eq("client_id", client["id"]) \
         .order("created_at", desc=True) \
         .limit(1) \
         .execute()
@@ -293,18 +250,18 @@ def session_analysis(session_uuid: str, client=Depends(verify_api_key)):
 
 @app.get("/events/flagged")
 def flagged_events(client=Depends(verify_api_key)):
-    """All flagged events across all sessions — live threat feed."""
-    events = get_flagged_events(limit=50)
+    # pyrefly: ignore [unexpected-keyword]
+    events = get_flagged_events(limit=50, client_id=client["id"])
     return {"events": events, "count": len(events)}
 
 
 @app.get("/analyses")
 def ai_analyses(client=Depends(verify_api_key)):
-    """Recent AI agent verdicts across all sessions."""
     from database import get_db
     db     = get_db()
     result = db.table("anchor_ai_analyses") \
         .select("*") \
+        .eq("client_id", client["id"]) \
         .order("created_at", desc=True) \
         .limit(20) \
         .execute()
@@ -313,16 +270,10 @@ def ai_analyses(client=Depends(verify_api_key)):
 
 # ─────────────────────────────────────────
 # POPIA ENDPOINTS
-# Breach notification drafts — Section 22
 # ─────────────────────────────────────────
 
 @app.get("/popia/reports")
 def popia_reports(client=Depends(verify_api_key)):
-    """
-    All POPIA breach report drafts for this client.
-    Admin reads from here, reviews, and sends to Information Regulator.
-    """
-    # pyrefly: ignore [missing-import]
     from popia import get_reports
     reports = get_reports(client_id=client.get("id"))
     return {"reports": reports, "count": len(reports)}
@@ -330,8 +281,6 @@ def popia_reports(client=Depends(verify_api_key)):
 
 @app.get("/popia/reports/{report_id}")
 def popia_report_detail(report_id: int, client=Depends(verify_api_key)):
-    """Full report draft — ready to review and send."""
-    # pyrefly: ignore [missing-import]
     from popia import get_report
     report = get_report(report_id)
     if not report:
@@ -341,12 +290,6 @@ def popia_report_detail(report_id: int, client=Depends(verify_api_key)):
 
 @app.post("/popia/generate/{session_uuid}")
 def popia_generate(session_uuid: str, client=Depends(verify_api_key)):
-    """
-    Manually trigger a POPIA report for a session.
-    Use from the dashboard when admin wants to force a report
-    regardless of automatic breach threshold.
-    """
-    # pyrefly: ignore [missing-import]
     from popia import generate_manual_report
     report = generate_manual_report(
         session_uuid = session_uuid,
@@ -357,20 +300,16 @@ def popia_generate(session_uuid: str, client=Depends(verify_api_key)):
 
 # ─────────────────────────────────────────
 # HONEYPOT DASHBOARD ENDPOINTS
-# Intelligence collected from attacker sessions
 # ─────────────────────────────────────────
 
 @app.get("/honeypot/sessions")
 def honeypot_sessions(client=Depends(verify_api_key)):
-    """
-    All active and historical honeypot sessions.
-    Shows how many attackers are currently contained.
-    """
     from database import get_db
     db     = get_db()
     result = db.table("anchor_sessions") \
         .select("session_uuid, user_id, ip_address, status, created_at, expires_at") \
         .eq("is_honeypot", True) \
+        .eq("client_id", client["id"]) \
         .order("created_at", desc=True) \
         .limit(50) \
         .execute()
@@ -379,14 +318,11 @@ def honeypot_sessions(client=Depends(verify_api_key)):
 
 @app.get("/honeypot/activity")
 def honeypot_activity(client=Depends(verify_api_key)):
-    """
-    Every action attackers have taken inside honeypot sessions.
-    This is the intelligence feed — what are they after?
-    """
     from database import get_db
     db     = get_db()
     result = db.table("anchor_honeypot_logs") \
         .select("*") \
+        .eq("client_id", client["id"]) \
         .order("created_at", desc=True) \
         .limit(100) \
         .execute()
@@ -395,15 +331,12 @@ def honeypot_activity(client=Depends(verify_api_key)):
 
 @app.get("/honeypot/session/{session_uuid}")
 def honeypot_session_detail(session_uuid: str, client=Depends(verify_api_key)):
-    """
-    Full action log for a specific honeypot session.
-    Shows exactly what one attacker did step by step.
-    """
     from database import get_db
     db     = get_db()
     result = db.table("anchor_honeypot_logs") \
         .select("*") \
         .eq("session_uuid", session_uuid) \
+        .eq("client_id", client["id"]) \
         .order("created_at", desc=True) \
         .execute()
     return {
@@ -415,26 +348,22 @@ def honeypot_session_detail(session_uuid: str, client=Depends(verify_api_key)):
 
 # ─────────────────────────────────────────
 # DASHBOARD STATS
-# Summary counts for the threat dashboard
 # ─────────────────────────────────────────
 
 @app.get("/dashboard/stats")
 def dashboard_stats(client=Depends(verify_api_key)):
-    """
-    Summary numbers for the dashboard header.
-    Dashboard reads from here for the stat cards.
-    """
     from database import get_db
-    db = get_db()
+    db  = get_db()
+    cid = client["id"]
 
-    threats    = db.table("anchor_threats") \
-        .select("id", count="exact").execute()
-    honeypots  = db.table("anchor_sessions") \
-        .select("id", count="exact").eq("is_honeypot", True).execute()
-    flagged    = db.table("anchor_session_events") \
-        .select("id", count="exact").eq("flagged", True).execute()
-    analyses   = db.table("anchor_ai_analyses") \
-        .select("id", count="exact").execute()
+    threats   = db.table("anchor_threats") \
+        .select("id", count="exact").eq("client_id", cid).execute()
+    honeypots = db.table("anchor_sessions") \
+        .select("id", count="exact").eq("is_honeypot", True).eq("client_id", cid).execute()
+    flagged   = db.table("anchor_session_events") \
+        .select("id", count="exact").eq("flagged", True).eq("client_id", cid).execute()
+    analyses  = db.table("anchor_ai_analyses") \
+        .select("id", count="exact").eq("client_id", cid).execute()
 
     return {
         "total_threats":    threats.count   or 0,
@@ -446,15 +375,10 @@ def dashboard_stats(client=Depends(verify_api_key)):
 
 # ─────────────────────────────────────────
 # ENROLLMENT STATS
-# Institutional device registry counts
 # ─────────────────────────────────────────
 
 @app.get("/enroll/stats")
 def enrollment_stats(client=Depends(verify_api_key)):
-    """
-    How many institutional devices are enrolled for this tenant.
-    IT admin reads from here to audit the device registry.
-    """
     from enrollment import get_tenant_id
     from database import get_db
     db        = get_db()
@@ -544,6 +468,7 @@ def get_threats(client=Depends(verify_api_key)):
     db     = get_db()
     result = db.table("anchor_threats") \
         .select("*") \
+        .eq("client_id", client["id"]) \
         .order("detected_at", desc=True) \
         .limit(50) \
         .execute()
@@ -556,6 +481,7 @@ def get_login_attempts(client=Depends(verify_api_key)):
     db     = get_db()
     result = db.table("anchor_login_attempts") \
         .select("*") \
+        .eq("client_id", client["id"]) \
         .order("attempted_at", desc=True) \
         .limit(50) \
         .execute()
@@ -564,11 +490,11 @@ def get_login_attempts(client=Depends(verify_api_key)):
 
 @app.get("/sessions")
 def get_sessions(client=Depends(verify_api_key)):
-    """Returns all active sessions — Watcher dashboard reads from here."""
     from database import get_db
     db     = get_db()
     result = db.table("anchor_sessions") \
         .select("*") \
+        .eq("client_id", client["id"]) \
         .order("created_at", desc=True) \
         .limit(50) \
         .execute()
@@ -577,20 +503,16 @@ def get_sessions(client=Depends(verify_api_key)):
 
 # ─────────────────────────────────────────
 # WEBAUTHN ENDPOINTS
-# Chip-level device attestation
-# TPM / Secure Enclave / TrustZone
 # ─────────────────────────────────────────
 
 @app.post("/webauthn/challenge")
 def webauthn_challenge(body: WebAuthnChallengeRequest, client=Depends(verify_api_key)):
-    """Step 1 — get a challenge before registration or login."""
     from webauthn import generate_challenge
     return generate_challenge(body.user_id, client["id"])
 
 
 @app.post("/webauthn/register")
 def webauthn_register(body: WebAuthnRegisterRequest, client=Depends(verify_api_key)):
-    """Step 2 — chip generated a keypair, store the public key."""
     from webauthn import register_credential
     return register_credential(
         user_id       = body.user_id,
@@ -604,7 +526,6 @@ def webauthn_register(body: WebAuthnRegisterRequest, client=Depends(verify_api_k
 
 @app.post("/webauthn/verify")
 def webauthn_verify(body: WebAuthnVerifyRequest, client=Depends(verify_api_key)):
-    """WebAuthn login — chip signed our challenge, verify the signature."""
     from webauthn import verify_credential
     return verify_credential(
         user_id            = body.user_id,
@@ -618,7 +539,6 @@ def webauthn_verify(body: WebAuthnVerifyRequest, client=Depends(verify_api_key))
 
 @app.get("/webauthn/credentials/{user_id}")
 def webauthn_credentials(user_id: str, client=Depends(verify_api_key)):
-    """Returns all registered devices for a user."""
     from webauthn import get_user_credentials
     return get_user_credentials(user_id, client["id"])
 

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from database import get_db
 from watcher import log_threat, log_event
+from ml.anomaly import run_anomaly_agent
 # pyrefly: ignore [missing-import]
 from honeypot import is_honeypot_session, log_honeypot_event, get_honeypot_response
 
@@ -95,6 +96,7 @@ def record_session_event(
             "risk_score":      0,
             "action_required": "none",
             "explanation":     "",
+            "session_uuid":    session_uuid,
             "honeypot":        True   # internal flag — not exposed to attacker
         }
 
@@ -121,6 +123,7 @@ def record_session_event(
             "risk_score":      90,
             "action_required": "none",
             "explanation":     "Hacker diverted to honeypot containment.",
+            "session_uuid":    session_uuid,
             "honeypot":        True
         }
 
@@ -145,7 +148,7 @@ def record_session_event(
 
     # ── Step 5: Call the anomaly agent ──────────────────────
     # pyrefly: ignore [missing-import]
-    from anomaly import run_anomaly_agent
+    from ml.anomaly import run_anomaly_agent
 
     verdict = run_anomaly_agent(
         session_uuid = session_uuid,
@@ -154,6 +157,7 @@ def record_session_event(
         endpoint     = endpoint,
         data_volume  = data_volume,
         ip_address   = ip_address or session.get("ip_address"),
+        user_agent   = user_agent or session.get("user_agent"),
         client_id    = client_id
     )
 

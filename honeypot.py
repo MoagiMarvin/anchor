@@ -9,26 +9,9 @@ from watcher import log_threat, log_event
 
 load_dotenv()
 
-# ─────────────────────────────────────────
-# ANCHOR HONEYPOT SESSIONS
-#
-# When risk score >= 75 on login, instead of
-# hard-blocking, serve a session that looks
-# completely real. The attacker thinks they're in.
-# They are not. Every action they take is logged.
-#
-# Why this beats hard-blocking:
-#   - Attacker doesn't know they've been caught
-#   - We learn their methods and targets
-#   - They waste time on fake data
-#   - Logs feed the Threat Analysis Agent
-# ─────────────────────────────────────────
-
 HONEYPOT_RISK_THRESHOLD = 75
 SESSION_EXPIRE_HOURS    = 2
 
-# Fake data served to attackers inside honeypot sessions
-# Convincing enough to keep them engaged, safe enough to expose nothing
 DUMMY_RECORDS = [
     {"id": "rec_001", "name": "Test User A",    "email": "test.a@institution.ac.za", "role": "student"},
     {"id": "rec_002", "name": "Test User B",    "email": "test.b@institution.ac.za", "role": "student"},
@@ -46,18 +29,19 @@ DUMMY_CONFIG = {
 
 
 def should_honeypot(risk_score: int) -> bool:
-    """Returns True if risk score is high enough to trigger honeypot."""
     return risk_score >= HONEYPOT_RISK_THRESHOLD
 
 
-def create_honeypot_session(user_id: str, ip_address: str, user_agent: str) -> dict:
+def create_honeypot_session(
+    user_id:    str,
+    ip_address: str,
+    user_agent: str,
+    client_id:  str = None   # FIX: accept client_id so rows are tenant-tagged
+) -> dict:
     """
     Creates a session that looks identical to a real one.
     Attacker receives a valid-looking PQC token.
     Internally flagged is_honeypot=True.
-
-    Returns same structure as create_session so main.py
-    doesn't need to know the difference.
     """
     from pqc import AnchorPQC
 
@@ -91,11 +75,11 @@ def create_honeypot_session(user_id: str, ip_address: str, user_agent: str) -> d
         "user_agent":     user_agent,
         "status":         "active",
         "is_honeypot":    True,
+        "client_id":      client_id,   # FIX: store so dashboard filters work
         "created_at":     datetime.now(timezone.utc).isoformat(),
         "expires_at":     expires_at
     }).execute()
 
-    # Log as threat — attacker contained, not blocked
     log_threat(session_uuid, "honeypot_session_created", ip_address)
     log_event(session_uuid, "honeypot_activated")
 
@@ -105,7 +89,6 @@ def create_honeypot_session(user_id: str, ip_address: str, user_agent: str) -> d
 
 
 def is_honeypot_session(session: dict) -> bool:
-    """Check if a resolved session record is a honeypot."""
     return session.get("is_honeypot", False) is True
 
 
@@ -114,11 +97,11 @@ def log_honeypot_event(
     session_ref:  str,
     user_id:      str,
     action:       str,
-    endpoint:     str  = None,
-    payload:      str  = None,
-    ip_address:   str  = None,
-    user_agent:   str  = None,
-    client_id:    str  = None
+    endpoint:     str = None,
+    payload:      str = None,
+    ip_address:   str = None,
+    user_agent:   str = None,
+    client_id:    str = None
 ):
     """
     Log every action an attacker takes inside a honeypot session.
@@ -149,7 +132,6 @@ def get_honeypot_response(action: str, endpoint: str = None) -> dict:
     """
     endpoint = endpoint or ""
 
-    # Admin access — show fake config
     if "admin" in endpoint or action in ("admin_access", "config_change"):
         return {
             "status":  "ok",
@@ -157,7 +139,6 @@ def get_honeypot_response(action: str, endpoint: str = None) -> dict:
             "data":    DUMMY_CONFIG
         }
 
-    # Export / bulk download — return dummy records
     if action in ("export_records", "bulk_download", "database_query"):
         return {
             "status":  "ok",
@@ -166,15 +147,13 @@ def get_honeypot_response(action: str, endpoint: str = None) -> dict:
             "total":   len(DUMMY_RECORDS)
         }
 
-    # Delete — pretend it worked
     if action in ("delete_records", "mass_update"):
         return {
-            "status":  "ok",
-            "message": "Operation completed successfully",
+            "status":   "ok",
+            "message":  "Operation completed successfully",
             "affected": 0
         }
 
-    # User management — fake user list
     if action in ("user_management",) or "users" in endpoint:
         return {
             "status": "ok",
@@ -182,7 +161,6 @@ def get_honeypot_response(action: str, endpoint: str = None) -> dict:
             "total":  len(DUMMY_RECORDS)
         }
 
-    # Default — generic ok response
     return {
         "status":  "ok",
         "message": "Request processed"
