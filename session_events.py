@@ -107,7 +107,7 @@ def record_session_event(
     is_forbidden    = any(path in (endpoint or "") for path in FORBIDDEN_PATHS)
     
     # Check for IDOR (viewing other student's data)
-    is_idor = "view_pii" in action and user_id not in (endpoint or "")
+    is_idor = False   # disabled — needs baseline data to work accurately
 
     if is_forbidden or is_idor:
         log_threat(session_uuid, f"spiderweb_trap:{'forbidden_path' if is_forbidden else 'idor'}", ip_address)

@@ -152,6 +152,9 @@ for action, endpoint, volume in attack_actions:
         print(f"     └─ Session killed. Attack pattern: {r.get('attack_pattern', 'anomaly')}")
         ATTACK_TOKEN = None
         break
+    if r.get("honeypot"):
+        print(f"     └─ 🍯 Session diverted to honeypot. Attacker contained silently.")
+        break
     time.sleep(0.5)
 
 # ─────────────────────────────────────────
